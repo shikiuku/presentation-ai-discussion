@@ -9,7 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
-import { useSpeechRecognition } from "@/hooks/use-speech-recognition"
+import { useExternalSpeechRecognition } from "@/hooks/use-external-speech-recognition"
 import {
   Mic,
   MicOff,
@@ -65,19 +65,22 @@ export default function PresentationAssistant({ params }: { params: { id: string
   const transcriptRef = useRef<HTMLDivElement>(null)
   const transcriptIdCounter = useRef(0)
 
-  // 音声認識フックを使用
-  const speechRecognition = useSpeechRecognition({
+  // 外部音声認識フックを使用（話者識別対応）
+  const speechRecognition = useExternalSpeechRecognition({
     lang: 'ja-JP',
     continuous: true,
-    interimResults: true,
+    recordingDuration: 5000,
     onResult: (result) => {
       if (result.isFinal) {
+        const speakerName = result.speaker ? result.speaker.speakerName : "あなた"
+        const isCurrentUser = !result.speaker || result.speaker.speakerTag === 1
+        
         const newEntry: TranscriptEntry = {
           id: (++transcriptIdCounter.current).toString(),
-          speaker: "あなた",
+          speaker: speakerName,
           content: result.text.trim(),
           timestamp: new Date().toLocaleTimeString(),
-          isCurrentUser: true,
+          isCurrentUser: isCurrentUser,
         }
         setTranscriptEntries(prev => [...prev, newEntry])
         
@@ -99,6 +102,7 @@ export default function PresentationAssistant({ params }: { params: { id: string
     start: startSpeechRecognition,
     stop: stopSpeechRecognition,
     error: speechError,
+    speakers,
   } = speechRecognition
 
   // ファクトチェック実行
@@ -425,9 +429,12 @@ export default function PresentationAssistant({ params }: { params: { id: string
                         <span className="text-sm text-muted-foreground">録音中</span>
                       </div>
                     )}
-                    {speechRecognition.usingFallback && (
-                      <Badge variant="secondary" className="ml-2 text-xs">
-                        代替録音モード
+                    <Badge variant="secondary" className="ml-2 text-xs">
+                      外部音声認識・話者識別対応
+                    </Badge>
+                    {Object.keys(speakers).length > 0 && (
+                      <Badge variant="outline" className="ml-2 text-xs">
+                        {Object.keys(speakers).length}名の話者を検出
                       </Badge>
                     )}
                     {speechError && (
