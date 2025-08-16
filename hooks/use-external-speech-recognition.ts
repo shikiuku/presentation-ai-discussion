@@ -195,8 +195,10 @@ export function useExternalSpeechRecognition({
       chunksRef.current = []
       
       mediaRecorderRef.current.ondataavailable = (event) => {
+        console.log('音声データ受信 - サイズ:', event.data.size, 'bytes')
         if (event.data.size > 0) {
           chunksRef.current.push(event.data)
+          console.log('チャンク追加 - 総チャンク数:', chunksRef.current.length)
         }
       }
       
@@ -223,12 +225,18 @@ export function useExternalSpeechRecognition({
       }
       
       mediaRecorderRef.current.start()
+      console.log('MediaRecorder開始 - 状態:', mediaRecorderRef.current.state)
       setError(null)
       
       // 一定時間後に停止して音声を送信
+      console.log('タイムアウト設定:', recordingDuration, 'ms後に停止')
       recordingIntervalRef.current = setTimeout(() => {
+        console.log('タイムアウト実行 - MediaRecorder状態:', mediaRecorderRef.current?.state)
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          console.log('録音停止を実行')
           mediaRecorderRef.current.stop()
+        } else {
+          console.warn('MediaRecorderが録音状態ではありません:', mediaRecorderRef.current?.state)
         }
       }, recordingDuration)
       
