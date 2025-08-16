@@ -109,8 +109,38 @@ export class SpeechRecognitionManager {
     }
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      console.error('Speech recognition error:', event.error)
-      this.config.onError?.(event.error)
+      console.error('Speech recognition error:', event.error, event.message)
+      
+      // エラーの詳細なメッセージを提供
+      let errorMessage = '音声認識エラーが発生しました'
+      
+      switch (event.error) {
+        case 'network':
+          errorMessage = 'ネットワークエラーです。インターネット接続を確認してください'
+          break
+        case 'not-allowed':
+          errorMessage = 'マイクの許可が必要です。ブラウザ設定でマイクを許可してください'
+          break
+        case 'no-speech':
+          errorMessage = '音声が検出されませんでした。マイクが正常に動作しているか確認してください'
+          break
+        case 'audio-capture':
+          errorMessage = 'オーディオキャプチャエラーです。マイクが使用できません'
+          break
+        case 'service-not-allowed':
+          errorMessage = '音声認識サービスが利用できません'
+          break
+        case 'aborted':
+          errorMessage = '音声認識が中断されました'
+          break
+        case 'language-not-supported':
+          errorMessage = '指定された言語はサポートされていません'
+          break
+        default:
+          errorMessage = `音声認識エラー: ${event.error}`
+      }
+      
+      this.config.onError?.(errorMessage)
     }
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
