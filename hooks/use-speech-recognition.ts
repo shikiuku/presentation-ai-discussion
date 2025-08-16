@@ -75,6 +75,18 @@ export function useSpeechRecognition({
     setIsSupported(recognition.isSupported())
   }, [])
 
+  // 開始処理関数
+  const handleStart = useCallback(() => {
+    setIsListening(true)
+    setError(null)
+    retryCountRef.current = 0 // 開始時にカウンターをリセット
+  }, [])
+
+  // 終了処理関数
+  const handleEnd = useCallback(() => {
+    setIsListening(false)
+  }, [])
+
   // 結果処理関数
   const handleResult = useCallback((result: TranscriptResult) => {
     if (result.isFinal) {
@@ -147,19 +159,7 @@ export function useSpeechRecognition({
     setIsListening(false)
     retryCountRef.current = 0 // カウンターをリセット
     onError?.(errorMessage)
-  }, [lang, continuous, interimResults, maxRetries, retryDelay, onError])
-
-  // 開始処理関数
-  const handleStart = useCallback(() => {
-    setIsListening(true)
-    setError(null)
-    retryCountRef.current = 0 // 開始時にカウンターをリセット
-  }, [])
-
-  // 終了処理関数
-  const handleEnd = useCallback(() => {
-    setIsListening(false)
-  }, [])
+  }, [lang, continuous, interimResults, maxRetries, retryDelay, onError, useMediaRecorderFallback, usingFallback, mediaRecorderSpeech, handleResult, handleStart, handleEnd])
 
   // 音声認識を開始
   const start = useCallback(() => {

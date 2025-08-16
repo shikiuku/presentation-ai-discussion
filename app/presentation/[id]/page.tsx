@@ -327,6 +327,11 @@ export default function PresentationAssistant({ params }: { params: { id: string
                         <span className="text-sm text-muted-foreground">録音中</span>
                       </div>
                     )}
+                    {speechRecognition.usingFallback && (
+                      <Badge variant="secondary" className="ml-2 text-xs">
+                        代替録音モード
+                      </Badge>
+                    )}
                     {speechError && (
                       <div className="ml-2 flex items-center">
                         <AlertTriangle className="h-4 w-4 text-destructive mr-1" />
