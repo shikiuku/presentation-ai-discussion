@@ -92,39 +92,28 @@ export function useExternalSpeechRecognition({
   // 音声データを外部APIに送信して分析
   const sendAudioToAPI = useCallback(async (audioBlob: Blob) => {
     try {
-      console.log('sendAudioToAPI: 開始 - ファイルサイズ:', audioBlob.size)
-      
       const formData = new FormData()
       formData.append('audio', audioBlob, 'audio.webm')
       
-      console.log('API呼び出し中: /api/speech')
       const response = await fetch('/api/speech', {
         method: 'POST',
         body: formData,
       })
-      
-      console.log('APIレスポンス受信 - ステータス:', response.status)
       
       if (!response.ok) {
         throw new Error(`API error: ${response.status}`)
       }
       
       const data = await response.json()
-      console.log('APIレスポンスデータ:', data)
-      console.log('データ構造確認 - success:', data.success, 'result:', data.result)
       
       if (data.success && data.result) {
-        console.log('レスポンス処理開始')
-        
         // 話者ダイアライゼーション結果を処理
         if (data.result.speakers && Array.isArray(data.result.speakers)) {
-          console.log('話者ダイアライゼーション結果を処理:', data.result.speakers.length, '個のスピーカー')
           let fullText = ''
           
-          data.result.speakers.forEach((speakerSegment: any, index: number) => {
+          data.result.speakers.forEach((speakerSegment: any) => {
             const speakerName = generateSpeakerName(speakerSegment.speakerTag)
             fullText += speakerSegment.text + ' '
-            console.log(`スピーカー${index + 1}:`, speakerSegment.text, '話者名:', speakerName)
             
             // 各話者セグメントに対してコールバックを呼び出し
             const result: TranscriptResultWithSpeaker = {
@@ -138,15 +127,12 @@ export function useExternalSpeechRecognition({
               }
             }
             
-            console.log('onResultコールバック実行:', result)
             onResult?.(result)
           })
           
-          console.log('フルテキスト:', fullText)
           setTranscript(prev => prev + fullText)
         } else {
           // 話者識別なしの場合
-          console.log('単一話者として処理:', data.result.transcript || data.result.text)
           const transcriptText = data.result.transcript || data.result.text || ''
           
           const result: TranscriptResultWithSpeaker = {
@@ -156,12 +142,9 @@ export function useExternalSpeechRecognition({
             timestamp: new Date(),
           }
           
-          console.log('onResultコールバック実行（単一話者）:', result)
           setTranscript(prev => prev + transcriptText + ' ')
           onResult?.(result)
         }
-      } else {
-        console.warn('APIレスポンスの構造が不正:', data)
       }
     } catch (err) {
       console.error('音声認識API error:', err)
@@ -174,8 +157,6 @@ export function useExternalSpeechRecognition({
   // MediaRecorderの設定と開始
   const startRecording = useCallback(async () => {
     try {
-      console.log('startRecording: 開始')
-      
       // getUserMediaを正しい方法で呼び出し
       const getUserMedia = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices)
       
@@ -183,7 +164,6 @@ export function useExternalSpeechRecognition({
         throw new Error('getUserMedia is not supported')
       }
       
-      console.log('getUserMedia: 音声ストリーム取得中...')
       const stream = await getUserMedia({ 
         audio: {
           sampleRate: 16000,
@@ -194,48 +174,28 @@ export function useExternalSpeechRecognition({
         } 
       })
       
-      console.log('getUserMedia: 音声ストリーム取得成功')
-      
       const options = {
         mimeType: 'audio/webm;codecs=opus'
       }
       
-      console.log('MediaRecorderサポート確認:', MediaRecorder.isTypeSupported(options.mimeType))
-      
       if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-        console.log('opus非サポート - audio/webmに変更')
         options.mimeType = 'audio/webm'
       }
       
-      console.log('使用するMIMEタイプ:', options.mimeType)
-      console.log('MediaRecorder作成中...')
-      
-      try {
-        mediaRecorderRef.current = new MediaRecorder(stream, options)
-        console.log('MediaRecorder作成成功')
-      } catch (err) {
-        console.error('MediaRecorder作成エラー:', err)
-        throw err
-      }
+      mediaRecorderRef.current = new MediaRecorder(stream, options)
       chunksRef.current = []
       
       mediaRecorderRef.current.ondataavailable = (event) => {
-        console.log('音声データ受信 - サイズ:', event.data.size, 'bytes')
         if (event.data.size > 0) {
           chunksRef.current.push(event.data)
-          console.log('チャンク追加 - 総チャンク数:', chunksRef.current.length)
         }
       }
       
       mediaRecorderRef.current.onstop = async () => {
         const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' })
-        console.log('録音停止 - 音声データサイズ:', audioBlob.size, 'bytes')
         
         if (audioBlob.size > 0) {
-          console.log('音声データをAPIに送信中...')
           await sendAudioToAPI(audioBlob)
-        } else {
-          console.warn('音声データが空です')
         }
         
         // ストリームを停止
@@ -250,18 +210,12 @@ export function useExternalSpeechRecognition({
       }
       
       mediaRecorderRef.current.start()
-      console.log('MediaRecorder開始 - 状態:', mediaRecorderRef.current.state)
       setError(null)
       
       // 一定時間後に停止して音声を送信
-      console.log('タイムアウト設定:', recordingDuration, 'ms後に停止')
       recordingIntervalRef.current = setTimeout(() => {
-        console.log('タイムアウト実行 - MediaRecorder状態:', mediaRecorderRef.current?.state)
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-          console.log('録音停止を実行')
           mediaRecorderRef.current.stop()
-        } else {
-          console.warn('MediaRecorderが録音状態ではありません:', mediaRecorderRef.current?.state)
         }
       }, recordingDuration)
       
@@ -276,22 +230,17 @@ export function useExternalSpeechRecognition({
 
   // 録音開始
   const start = useCallback(() => {
-    console.log('音声録音開始の試行')
-    
     if (!isSupported) {
       const errorMessage = 'このブラウザは音声録音をサポートしていません'
-      console.error('サポートチェック失敗:', errorMessage)
       setError(errorMessage)
       onError?.(errorMessage)
       return
     }
     
     if (isListening) {
-      console.log('既に録音中です')
       return
     }
     
-    console.log('録音を開始します')
     setError(null)
     setIsListening(true)
     startRecording()
