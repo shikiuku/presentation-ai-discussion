@@ -65,33 +65,44 @@ export default function PresentationAssistant({ params }: { params: { id: string
   const transcriptRef = useRef<HTMLDivElement>(null)
   const transcriptIdCounter = useRef(0)
 
-  // 外部音声認識フックを使用（話者識別対応）
-  const speechRecognition = useExternalSpeechRecognition({
-    lang: 'ja-JP',
-    continuous: true,
-    recordingDuration: 5000,
-    onResult: (result) => {
-      if (result.isFinal) {
-        const speakerName = result.speaker ? result.speaker.speakerName : "あなた"
-        const isCurrentUser = !result.speaker || result.speaker.speakerTag === 1
-        
-        const newEntry: TranscriptEntry = {
-          id: (++transcriptIdCounter.current).toString(),
-          speaker: speakerName,
-          content: result.text.trim(),
-          timestamp: new Date().toLocaleTimeString(),
-          isCurrentUser: isCurrentUser,
-        }
-        setTranscriptEntries(prev => [...prev, newEntry])
-        
-        // 自動分析は停止 - 手動トリガーに変更
-      }
-    },
-    onError: (error) => {
-      setActiveNotification(`音声認識エラー: ${error}`)
-      setTimeout(() => setActiveNotification(null), 5000)
-    },
-  })
+  // 外部音声認識フックを使用（話者識別対応）- 一時的に無効化
+  const speechRecognition = {
+    isListening: false,
+    isSupported: true,
+    transcript: '',
+    interimTranscript: '',
+    start: () => console.log('音声認識開始（無効化中）'),
+    stop: () => console.log('音声認識停止（無効化中）'),
+    error: null,
+    speakers: {},
+  }
+  
+  // const speechRecognition = useExternalSpeechRecognition({
+  //   lang: 'ja-JP',
+  //   continuous: true,
+  //   recordingDuration: 5000,
+  //   onResult: (result) => {
+  //     if (result.isFinal) {
+  //       const speakerName = result.speaker ? result.speaker.speakerName : "あなた"
+  //       const isCurrentUser = !result.speaker || result.speaker.speakerTag === 1
+  //       
+  //       const newEntry: TranscriptEntry = {
+  //         id: (++transcriptIdCounter.current).toString(),
+  //         speaker: speakerName,
+  //         content: result.text.trim(),
+  //         timestamp: new Date().toLocaleTimeString(),
+  //         isCurrentUser: isCurrentUser,
+  //       }
+  //       setTranscriptEntries(prev => [...prev, newEntry])
+  //       
+  //       // 自動分析は停止 - 手動トリガーに変更
+  //     }
+  //   },
+  //   onError: (error) => {
+  //     setActiveNotification(`音声認識エラー: ${error}`)
+  //     setTimeout(() => setActiveNotification(null), 5000)
+  //   },
+  // })
 
   // speechRecognitionオブジェクトから値を分割代入
   const {

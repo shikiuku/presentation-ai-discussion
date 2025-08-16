@@ -9,6 +9,18 @@ interface SpeechRecognitionErrorEvent extends Event {
   readonly message: string
 }
 
+interface SpeechGrammar {
+  src: string
+  weight: number
+}
+
+interface SpeechGrammarList {
+  readonly length: number
+  addFromString(string: string, weight?: number): void
+  addFromURI(src: string, weight?: number): void
+  item(index: number): SpeechGrammar | null
+}
+
 interface SpeechRecognition extends EventTarget {
   continuous: boolean
   grammars: SpeechGrammarList

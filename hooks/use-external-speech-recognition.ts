@@ -70,21 +70,24 @@ export function useExternalSpeechRecognition({
 
   // 話者名を生成/更新
   const generateSpeakerName = useCallback((speakerTag: number): string => {
-    const existingName = speakers[speakerTag]
-    if (existingName) {
-      return existingName
-    }
+    setSpeakers(prev => {
+      const existingName = prev[speakerTag]
+      if (existingName) {
+        return prev
+      }
+      
+      const speakerNames = ['話者A', '話者B', '話者C', '話者D', '話者E']
+      const newName = speakerNames[speakerTag - 1] || `話者${speakerTag}`
+      
+      return {
+        ...prev,
+        [speakerTag]: newName
+      }
+    })
     
     const speakerNames = ['話者A', '話者B', '話者C', '話者D', '話者E']
-    const newName = speakerNames[speakerTag - 1] || `話者${speakerTag}`
-    
-    setSpeakers(prev => ({
-      ...prev,
-      [speakerTag]: newName
-    }))
-    
-    return newName
-  }, [speakers])
+    return speakerNames[speakerTag - 1] || `話者${speakerTag}`
+  }, [])
 
   // 音声データを外部APIに送信して分析
   const sendAudioToAPI = useCallback(async (audioBlob: Blob) => {
@@ -147,7 +150,7 @@ export function useExternalSpeechRecognition({
       setError(errorMessage)
       onError?.(errorMessage)
     }
-  }, [onResult, onError, generateSpeakerName])
+  }, [onResult, onError])
 
   // MediaRecorderの設定と開始
   const startRecording = useCallback(async () => {
@@ -203,9 +206,7 @@ export function useExternalSpeechRecognition({
         // 連続録音の場合は再開
         if (continuous && isListening) {
           setTimeout(() => {
-            if (isListening) {
-              startRecording()
-            }
+            startRecording()
           }, 100)
         }
       }
@@ -227,11 +228,11 @@ export function useExternalSpeechRecognition({
       onError?.(errorMessage)
       setIsListening(false)
     }
-  }, [continuous, isListening, recordingDuration, sendAudioToAPI, onError])
+  }, [continuous, recordingDuration, sendAudioToAPI, onError, isListening])
 
   // 録音開始
   const start = useCallback(() => {
-    console.log('音声録音開始の試行:', { isSupported, isListening })
+    console.log('音声録音開始の試行')
     
     if (!isSupported) {
       const errorMessage = 'このブラウザは音声録音をサポートしていません'
@@ -247,8 +248,8 @@ export function useExternalSpeechRecognition({
     }
     
     console.log('録音を開始します')
-    setIsListening(true)
     setError(null)
+    setIsListening(true)
     startRecording()
   }, [isSupported, isListening, startRecording, onError])
 

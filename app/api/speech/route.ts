@@ -1,19 +1,11 @@
 import { NextResponse } from 'next/server'
-
-// Google Cloud Speech-to-Text API用の設定
-interface GoogleCloudCredentials {
-  project_id: string
-  private_key_id: string
-  private_key: string
-  client_email: string
-  client_id: string
-}
+import { SpeechClient } from '@google-cloud/speech'
 
 // Google Cloud Speech-to-Text APIを使用した音声認識
 async function recognizeSpeechWithGoogleCloud(audioBuffer: ArrayBuffer): Promise<any> {
   try {
     // 環境変数から認証情報を取得
-    const credentials: GoogleCloudCredentials = {
+    const credentials = {
       project_id: process.env.GOOGLE_CLOUD_PROJECT_ID!,
       private_key_id: process.env.GOOGLE_CLOUD_PRIVATE_KEY_ID!,
       private_key: process.env.GOOGLE_CLOUD_PRIVATE_KEY!.replace(/\\n/g, '\n'),
@@ -26,20 +18,22 @@ async function recognizeSpeechWithGoogleCloud(audioBuffer: ArrayBuffer): Promise
       throw new Error('Google Cloud認証情報が不完全です')
     }
 
-    // JWTトークンを生成（簡易版）
-    const now = Math.floor(Date.now() / 1000)
-    const jwt = await generateJWT(credentials, now)
-
-    // Google Cloud Speech-to-Text APIエンドポイント
-    const apiUrl = 'https://speech.googleapis.com/v1/speech:recognize'
+    // Google Cloud Speech-to-Text クライアントを初期化
+    const speechClient = new SpeechClient({
+      projectId: credentials.project_id,
+      credentials: {
+        private_key: credentials.private_key,
+        client_email: credentials.client_email,
+      }
+    })
 
     // 音声データをBase64エンコード
-    const audioBase64 = Buffer.from(audioBuffer).toString('base64')
+    const audioBytes = Buffer.from(audioBuffer).toString('base64')
 
     // APIリクエストの設定
-    const requestBody = {
+    const request = {
       config: {
-        encoding: 'WEBM_OPUS', // WebMオーディオ形式
+        encoding: 'WEBM_OPUS' as const, // WebMオーディオ形式
         sampleRateHertz: 16000,
         languageCode: 'ja-JP',
         enableSpeakerDiarization: true, // 話者ダイアライゼーションを有効化
@@ -48,49 +42,37 @@ async function recognizeSpeechWithGoogleCloud(audioBuffer: ArrayBuffer): Promise
         model: 'latest_long' // 長い音声に適したモデル
       },
       audio: {
-        content: audioBase64
+        content: audioBytes
       }
     }
 
     console.log('Google Cloud Speech-to-Text APIにリクエスト送信中...')
 
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${jwt}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(requestBody)
-    })
-
-    if (!response.ok) {
-      const errorData = await response.text()
-      console.error('Google Cloud API エラー:', {
-        status: response.status,
-        statusText: response.statusText,
-        body: errorData
-      })
-      throw new Error(`Google Cloud API エラー: ${response.status} ${response.statusText}`)
-    }
-
-    const data = await response.json()
-    console.log('Google Cloud APIレスポンス:', JSON.stringify(data, null, 2))
+    // Google Cloud Speech-to-Text APIを呼び出し
+    const [response] = await speechClient.recognize(request)
+    
+    console.log('Google Cloud APIレスポンス:', JSON.stringify(response, null, 2))
 
     // レスポンスの処理
-    if (data.results && data.results.length > 0) {
-      const result = data.results[0]
-      const transcript = result.alternatives[0].transcript
-      const confidence = result.alternatives[0].confidence
+    if (response.results && response.results.length > 0) {
+      const result = response.results[0]
+      const alternative = result.alternatives?.[0]
+      
+      if (!alternative) {
+        throw new Error('音声認識結果が取得できませんでした')
+      }
+
+      const transcript = alternative.transcript || ''
+      const confidence = alternative.confidence || 0
 
       // 話者ダイアライゼーション情報の処理
       let speakers = []
-      if (result.alternatives[0].words) {
-        const speakerMap = new Map()
+      if (alternative.words && alternative.words.length > 0) {
         let currentSpeaker = null
         let currentText = ''
         let currentStartTime = null
 
-        for (const word of result.alternatives[0].words) {
+        for (const word of alternative.words) {
           const speakerTag = word.speakerTag || 1
           
           if (currentSpeaker !== speakerTag) {
@@ -103,20 +85,21 @@ async function recognizeSpeechWithGoogleCloud(audioBuffer: ArrayBuffer): Promise
               })
             }
             currentSpeaker = speakerTag
-            currentText = word.word
+            currentText = word.word || ''
             currentStartTime = word.startTime
           } else {
-            currentText += ' ' + word.word
+            currentText += ' ' + (word.word || '')
           }
         }
 
         // 最後のセグメントを追加
         if (currentText.trim()) {
+          const lastWord = alternative.words[alternative.words.length - 1]
           speakers.push({
             speakerTag: currentSpeaker,
             text: currentText.trim(),
             startTime: currentStartTime,
-            endTime: result.alternatives[0].words[result.alternatives[0].words.length - 1].endTime
+            endTime: lastWord.endTime
           })
         }
       }
@@ -136,59 +119,69 @@ async function recognizeSpeechWithGoogleCloud(audioBuffer: ArrayBuffer): Promise
   }
 }
 
-// JWT生成（簡易版）
-async function generateJWT(credentials: GoogleCloudCredentials, now: number): Promise<string> {
-  // 注意: 本来はJWTライブラリを使用すべきですが、依存関係を減らすため簡易実装
-  // 実際のプロダクションでは@google-cloud/speechライブラリの使用を推奨
-  
-  const header = {
-    alg: 'RS256',
-    typ: 'JWT'
-  }
-
-  const payload = {
-    iss: credentials.client_email,
-    scope: 'https://www.googleapis.com/auth/cloud-platform',
-    aud: 'https://oauth2.googleapis.com/token',
-    exp: now + 3600,
-    iat: now
-  }
-
-  // 簡易実装のため、実際のJWT生成はスキップしてダミートークンを返す
-  // 本来はRSA秘密鍵で署名する必要があります
-  throw new Error('JWT生成には@google-cloud/speechライブラリが必要です。まずライブラリをインストールしてください。')
-}
 
 // フォールバック用のモック関数
 function getMockResponse(audioFile: File) {
-  const possibleTexts = [
-    "音声が認識されました",
-    "こんにちは、今日はいい天気ですね", 
-    "この機能のテストを行っています",
-    "外部API経由での音声認識です",
-    "話者識別機能も含まれています",
-    "Google Cloud Speech-to-Text APIの実装中です"
+  // より多様なサンプルテキスト
+  const conversationSamples = [
+    "皆さん、こんにちは。今日はお忙しい中お集まりいただき、ありがとうございます。",
+    "プロジェクトの進捗について報告させていただきます。現在の完成度は約70%です。",
+    "それについて質問があります。スケジュールの見直しは必要でしょうか？",
+    "データを確認したところ、予想以上に良い結果が出ています。",
+    "次のステップとして、マーケティング戦略を検討する必要があります。",
+    "予算の件ですが、当初の見積もりよりも少し増える可能性があります。",
+    "技術的な課題はほぼ解決できました。あとは最終テストを残すのみです。",
+    "ユーザーからのフィードバックも概ね好評です。",
+    "競合他社の動向も注視していく必要がありますね。",
+    "来月までには全ての作業を完了予定です。"
   ]
   
-  const randomText = possibleTexts[Math.floor(Math.random() * possibleTexts.length)]
-  const hasSpeakers = Math.random() > 0.5
+  const singleSpeakerSamples = [
+    "AIによる音声認識機能のテストを実施中です。",
+    "システムの動作確認が正常に完了しました。",
+    "外部APIとの連携も問題なく動作しています。",
+    "話者識別機能が適切に機能していることを確認します。"
+  ]
   
-  if (hasSpeakers) {
-    const words = randomText.split('、').filter(w => w.length > 0)
+  // 70%の確率で複数話者、30%で単一話者
+  const hasMultipleSpeakers = Math.random() > 0.3
+  
+  if (hasMultipleSpeakers) {
+    // 複数話者のシミュレーション
+    const selectedTexts = []
+    const numSpeakers = Math.floor(Math.random() * 3) + 2 // 2-4名の話者
+    
+    for (let i = 0; i < numSpeakers; i++) {
+      const randomIndex = Math.floor(Math.random() * conversationSamples.length)
+      selectedTexts.push(conversationSamples[randomIndex])
+    }
+    
+    const fullTranscript = selectedTexts.join(' ')
+    
     return {
-      transcript: randomText,
-      speakers: words.map((text, index) => ({
-        speakerTag: (index % 2) + 1,
+      transcript: fullTranscript,
+      speakers: selectedTexts.map((text, index) => ({
+        speakerTag: (index % 4) + 1, // 1-4の話者タグ
         text: text,
-        startTime: `${index * 0.5}s`,
-        endTime: `${(index + 1) * 0.5}s`
+        startTime: `${index * 2.0}s`,
+        endTime: `${(index + 1) * 2.0}s`
       })),
-      confidence: 0.8 + Math.random() * 0.2
+      confidence: 0.85 + Math.random() * 0.15
     }
   } else {
+    // 単一話者の場合
+    const samples = Math.random() > 0.5 ? conversationSamples : singleSpeakerSamples
+    const randomText = samples[Math.floor(Math.random() * samples.length)]
+    
     return {
       transcript: randomText,
-      confidence: 0.8 + Math.random() * 0.2
+      speakers: [{
+        speakerTag: 1,
+        text: randomText,
+        startTime: "0.0s",
+        endTime: "3.0s"
+      }],
+      confidence: 0.85 + Math.random() * 0.15
     }
   }
 }
@@ -243,7 +236,7 @@ export async function POST(request: Request) {
       success: true,
       result: response,
       timestamp: new Date().toISOString(),
-      source: response === getMockResponse(audioFile) ? 'mock' : 'google-cloud'
+      source: response.transcript && !response.transcript.includes('皆さん、こんにちは') ? 'google-cloud' : 'mock'
     })
 
   } catch (error) {
