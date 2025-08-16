@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
+import { useSpeechRecognition } from "@/hooks/use-speech-recognition"
 import {
   Mic,
   MicOff,
@@ -26,6 +27,7 @@ import {
   ArrowLeft,
   User,
   Users,
+  Loader2,
 } from "lucide-react"
 
 interface AnalysisResult {
@@ -45,14 +47,13 @@ interface TranscriptEntry {
 }
 
 export default function PresentationAssistant({ params }: { params: { id: string } }) {
-  const [isRecording, setIsRecording] = useState(false)
-  const [isPaused, setIsPaused] = useState(false)
   const [transcriptEntries, setTranscriptEntries] = useState<TranscriptEntry[]>([])
   const [userClaim, setUserClaim] = useState("")
   const [opponentClaim, setOpponentClaim] = useState("")
   const [analysisResults, setAnalysisResults] = useState<AnalysisResult[]>([])
   const [activeNotification, setActiveNotification] = useState<string | null>(null)
   const [isDarkMode, setIsDarkMode] = useState(false)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [sidebarSections, setSidebarSections] = useState({
     factCheck: true,
     rebuttals: true,
@@ -60,6 +61,104 @@ export default function PresentationAssistant({ params }: { params: { id: string
   })
 
   const transcriptRef = useRef<HTMLDivElement>(null)
+  const transcriptIdCounter = useRef(0)
+
+  // 音声認識フックを使用
+  const {
+    isListening,
+    isSupported,
+    transcript,
+    interimTranscript,
+    start: startSpeechRecognition,
+    stop: stopSpeechRecognition,
+    error: speechError,
+  } = useSpeechRecognition({
+    lang: 'ja-JP',
+    continuous: true,
+    interimResults: true,
+    onResult: (result) => {
+      if (result.isFinal) {
+        const newEntry: TranscriptEntry = {
+          id: (++transcriptIdCounter.current).toString(),
+          speaker: "あなた",
+          content: result.text.trim(),
+          timestamp: new Date().toLocaleTimeString(),
+          isCurrentUser: true,
+        }
+        setTranscriptEntries(prev => [...prev, newEntry])
+        
+        // 新しい発言に対してAI分析を実行
+        handleAutoAnalysis(result.text.trim())
+      }
+    },
+    onError: (error) => {
+      setActiveNotification(`音声認識エラー: ${error}`)
+      setTimeout(() => setActiveNotification(null), 5000)
+    },
+  })
+
+  // AI分析を実行する関数
+  const handleAutoAnalysis = async (text: string) => {
+    if (text.length < 10) return // 短すぎるテキストは分析しない
+    
+    setIsAnalyzing(true)
+    
+    try {
+      // ファクトチェック分析
+      const factCheckResponse = await fetch('/api/analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'fact-check',
+          text: text,
+        }),
+      })
+      
+      if (factCheckResponse.ok) {
+        const factCheckResult = await factCheckResponse.json()
+        const newFactCheckResult: AnalysisResult = {
+          id: `fact-${Date.now()}`,
+          type: 'fact-check',
+          content: factCheckResult.result,
+          confidence: 'high',
+          timestamp: new Date().toLocaleTimeString(),
+        }
+        setAnalysisResults(prev => [...prev, newFactCheckResult])
+      }
+      
+      // 反論分析（ユーザーの主張と相手の主張がある場合）
+      if (userClaim && opponentClaim) {
+        const rebuttalResponse = await fetch('/api/analysis', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'rebuttal',
+            userClaim: userClaim,
+            opponentClaim: opponentClaim,
+          }),
+        })
+        
+        if (rebuttalResponse.ok) {
+          const rebuttalResult = await rebuttalResponse.json()
+          const newRebuttalResult: AnalysisResult = {
+            id: `rebuttal-${Date.now()}`,
+            type: 'rebuttal',
+            content: rebuttalResult.result,
+            confidence: 'medium',
+            timestamp: new Date().toLocaleTimeString(),
+          }
+          setAnalysisResults(prev => [...prev, newRebuttalResult])
+        }
+      }
+      
+    } catch (error) {
+      console.error('分析エラー:', error)
+      setActiveNotification('AI分析中にエラーが発生しました')
+      setTimeout(() => setActiveNotification(null), 3000)
+    } finally {
+      setIsAnalyzing(false)
+    }
+  }
 
   const toggleSidebarSection = (section: keyof typeof sidebarSections) => {
     setSidebarSections((prev) => ({
@@ -68,68 +167,17 @@ export default function PresentationAssistant({ params }: { params: { id: string
     }))
   }
 
-  useEffect(() => {
-    if (isRecording && !isPaused && transcriptEntries.length > 0) {
-      const timer = setTimeout(() => {
-        const mockResults: AnalysisResult[] = [
-          {
-            id: Date.now().toString(),
-            type: "fact-check",
-            content: "この統計は2023年のデータに基づいており、最新の研究結果と一致しています。",
-            confidence: "high",
-            timestamp: new Date().toLocaleTimeString(),
-          },
-          {
-            id: (Date.now() + 1).toString(),
-            type: "rebuttal",
-            content:
-              "この主張に対する反論として、代替的な視点を考慮することができます：市場の変動要因も重要な要素です。",
-            confidence: "medium",
-            timestamp: new Date().toLocaleTimeString(),
-          },
-        ]
-        setAnalysisResults((prev) => [...prev, ...mockResults])
-      }, 2000)
-      return () => clearTimeout(timer)
-    }
-  }, [transcriptEntries, isRecording, isPaused])
-
   const toggleRecording = () => {
-    if (!isRecording) {
-      setIsRecording(true)
-      setIsPaused(false)
-      const mockEntries: TranscriptEntry[] = [
-        {
-          id: "1",
-          speaker: "あなた",
-          content: "こんにちは、本日のプレゼンテーションを開始いたします。まず、市場分析の結果についてお話しします。",
-          timestamp: new Date().toLocaleTimeString(),
-          isCurrentUser: true,
-        },
-        {
-          id: "2",
-          speaker: "参加者A",
-          content: "ありがとうございます。その市場分析のデータソースについて教えていただけますか？",
-          timestamp: new Date(Date.now() + 5000).toLocaleTimeString(),
-          isCurrentUser: false,
-        },
-        {
-          id: "3",
-          speaker: "あなた",
-          content: "はい、こちらのデータは2024年第3四半期の業界レポートに基づいています。",
-          timestamp: new Date(Date.now() + 10000).toLocaleTimeString(),
-          isCurrentUser: true,
-        },
-      ]
-      setTranscriptEntries(mockEntries)
+    if (!isListening) {
+      if (!isSupported) {
+        setActiveNotification('このブラウザは音声認識をサポートしていません')
+        setTimeout(() => setActiveNotification(null), 3000)
+        return
+      }
+      startSpeechRecognition()
     } else {
-      setIsRecording(false)
-      setIsPaused(false)
+      stopSpeechRecognition()
     }
-  }
-
-  const togglePause = () => {
-    setIsPaused(!isPaused)
   }
 
   const copyTranscript = () => {
@@ -167,6 +215,13 @@ export default function PresentationAssistant({ params }: { params: { id: string
     }
   }
 
+  // 自動スクロール
+  useEffect(() => {
+    if (transcriptRef.current) {
+      transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
+    }
+  }, [transcriptEntries, interimTranscript])
+
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add("dark")
@@ -197,10 +252,11 @@ export default function PresentationAssistant({ params }: { params: { id: string
               </Button>
               <Button
                 onClick={toggleRecording}
-                className={`${isRecording ? "bg-destructive hover:bg-destructive/90" : "bg-primary hover:bg-primary/90"}`}
+                className={`${isListening ? "bg-destructive hover:bg-destructive/90" : "bg-primary hover:bg-primary/90"}`}
+                disabled={!isSupported}
               >
-                {isRecording ? <MicOff className="h-4 w-4 mr-2" /> : <Mic className="h-4 w-4 mr-2" />}
-                {isRecording ? "プレゼン終了" : "プレゼン開始"}
+                {isListening ? <MicOff className="h-4 w-4 mr-2" /> : <Mic className="h-4 w-4 mr-2" />}
+                {isListening ? "プレゼン終了" : "プレゼン開始"}
               </Button>
             </div>
           </div>
@@ -265,18 +321,25 @@ export default function PresentationAssistant({ params }: { params: { id: string
                   <CardTitle className="text-lg flex items-center">
                     <Mic className="h-5 w-5 mr-2 text-accent" />
                     ライブトランスクリプト
-                    {isRecording && (
+                    {isListening && (
                       <div className="ml-2 flex items-center">
                         <div className="h-2 w-2 bg-red-500 rounded-full animate-pulse mr-2"></div>
                         <span className="text-sm text-muted-foreground">録音中</span>
                       </div>
                     )}
+                    {speechError && (
+                      <div className="ml-2 flex items-center">
+                        <AlertTriangle className="h-4 w-4 text-destructive mr-1" />
+                        <span className="text-sm text-destructive">エラー</span>
+                      </div>
+                    )}
                   </CardTitle>
                   <div className="flex items-center space-x-2">
-                    {isRecording && (
-                      <Button variant="outline" size="sm" onClick={togglePause}>
-                        {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-                      </Button>
+                    {isAnalyzing && (
+                      <div className="flex items-center text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        分析中...
+                      </div>
                     )}
                     <Button
                       variant="outline"
@@ -292,42 +355,60 @@ export default function PresentationAssistant({ params }: { params: { id: string
               <CardContent>
                 <ScrollArea className="h-[300px] w-full">
                   <div ref={transcriptRef} className="space-y-3 p-4">
-                    {transcriptEntries.length > 0 ? (
-                      transcriptEntries.map((entry) => (
-                        <div
-                          key={entry.id}
-                          className={`flex items-start space-x-3 p-3 rounded-lg ${
-                            entry.isCurrentUser
-                              ? "bg-primary/10 border-l-4 border-primary"
-                              : "bg-muted border-l-4 border-muted-foreground/30"
-                          }`}
-                        >
-                          <div className="flex-shrink-0 mt-1">
-                            {entry.isCurrentUser ? (
-                              <User className="h-4 w-4 text-primary" />
-                            ) : (
-                              <Users className="h-4 w-4 text-muted-foreground" />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center space-x-2 mb-1">
-                              <span
-                                className={`text-sm font-medium ${
-                                  entry.isCurrentUser ? "text-primary" : "text-foreground"
-                                }`}
-                              >
-                                {entry.speaker}
-                              </span>
-                              <span className="text-xs text-muted-foreground">{entry.timestamp}</span>
+                    {transcriptEntries.length > 0 || interimTranscript ? (
+                      <>
+                        {transcriptEntries.map((entry) => (
+                          <div
+                            key={entry.id}
+                            className={`flex items-start space-x-3 p-3 rounded-lg ${
+                              entry.isCurrentUser
+                                ? "bg-primary/10 border-l-4 border-primary"
+                                : "bg-muted border-l-4 border-muted-foreground/30"
+                            }`}
+                          >
+                            <div className="flex-shrink-0 mt-1">
+                              {entry.isCurrentUser ? (
+                                <User className="h-4 w-4 text-primary" />
+                              ) : (
+                                <Users className="h-4 w-4 text-muted-foreground" />
+                              )}
                             </div>
-                            <p className="text-sm leading-relaxed text-foreground">{entry.content}</p>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center space-x-2 mb-1">
+                                <span
+                                  className={`text-sm font-medium ${
+                                    entry.isCurrentUser ? "text-primary" : "text-foreground"
+                                  }`}
+                                >
+                                  {entry.speaker}
+                                </span>
+                                <span className="text-xs text-muted-foreground">{entry.timestamp}</span>
+                              </div>
+                              <p className="text-sm leading-relaxed text-foreground">{entry.content}</p>
+                            </div>
                           </div>
-                        </div>
-                      ))
+                        ))}
+                        {interimTranscript && (
+                          <div className="flex items-start space-x-3 p-3 rounded-lg bg-accent/20 border-l-4 border-accent opacity-70">
+                            <div className="flex-shrink-0 mt-1">
+                              <User className="h-4 w-4 text-accent" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center space-x-2 mb-1">
+                                <span className="text-sm font-medium text-accent">あなた (入力中...)</span>
+                              </div>
+                              <p className="text-sm leading-relaxed text-foreground italic">{interimTranscript}</p>
+                            </div>
+                          </div>
+                        )}
+                      </>
                     ) : (
                       <div className="text-center py-8">
                         <span className="text-muted-foreground italic">
-                          プレゼンテーションを開始すると、音声がここにリアルタイムで表示されます...
+                          {!isSupported 
+                            ? "このブラウザは音声認識をサポートしていません"
+                            : "プレゼンテーションを開始すると、音声がここにリアルタイムで表示されます..."
+                          }
                         </span>
                       </div>
                     )}
