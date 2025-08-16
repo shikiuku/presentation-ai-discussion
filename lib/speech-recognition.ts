@@ -124,9 +124,14 @@ export class SpeechRecognitionManager {
       recognition.serviceURI = 'wss://www.google.com/speech-api/v2/recognize'
     }
     
-    // グラマーをリセットして軽量化
+    // グラマーをリセットして軽量化（安全な方法）
     if ('grammars' in recognition && recognition.grammars) {
-      recognition.grammars.length = 0
+      try {
+        // lengthプロパティが読み取り専用の場合があるため、設定を避ける
+        console.log('グラマーリストは使用せず、デフォルトのままにします')
+      } catch (error) {
+        console.log('グラマーリストの操作をスキップ:', error)
+      }
     }
 
     // イベントハンドラを設定
