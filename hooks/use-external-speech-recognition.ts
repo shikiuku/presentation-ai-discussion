@@ -50,10 +50,22 @@ export function useExternalSpeechRecognition({
 
   // ブラウザサポートチェック
   useEffect(() => {
-    const isMediaRecorderSupported = typeof MediaRecorder !== 'undefined' && 
-                                   navigator.mediaDevices && 
-                                   navigator.mediaDevices.getUserMedia
-    setIsSupported(isMediaRecorderSupported)
+    const checkSupport = () => {
+      try {
+        const hasMediaRecorder = typeof MediaRecorder !== 'undefined'
+        const hasMediaDevices = typeof navigator !== 'undefined' && 
+                              navigator.mediaDevices && 
+                              typeof navigator.mediaDevices.getUserMedia === 'function'
+        const hasSecureContext = window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost'
+        
+        return hasMediaRecorder && hasMediaDevices && hasSecureContext
+      } catch (error) {
+        console.error('Support check error:', error)
+        return false
+      }
+    }
+    
+    setIsSupported(checkSupport())
   }, [])
 
   // 話者名を生成/更新
@@ -140,7 +152,17 @@ export function useExternalSpeechRecognition({
   // MediaRecorderの設定と開始
   const startRecording = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
+      console.log('startRecording: 開始')
+      
+      // getUserMediaを正しい方法で呼び出し
+      const getUserMedia = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices)
+      
+      if (!getUserMedia) {
+        throw new Error('getUserMedia is not supported')
+      }
+      
+      console.log('getUserMedia: 音声ストリーム取得中...')
+      const stream = await getUserMedia({ 
         audio: {
           sampleRate: 16000,
           channelCount: 1,
@@ -149,6 +171,8 @@ export function useExternalSpeechRecognition({
           autoGainControl: true,
         } 
       })
+      
+      console.log('getUserMedia: 音声ストリーム取得成功')
       
       const options = {
         mimeType: 'audio/webm;codecs=opus'
@@ -207,17 +231,22 @@ export function useExternalSpeechRecognition({
 
   // 録音開始
   const start = useCallback(() => {
+    console.log('音声録音開始の試行:', { isSupported, isListening })
+    
     if (!isSupported) {
       const errorMessage = 'このブラウザは音声録音をサポートしていません'
+      console.error('サポートチェック失敗:', errorMessage)
       setError(errorMessage)
       onError?.(errorMessage)
       return
     }
     
     if (isListening) {
+      console.log('既に録音中です')
       return
     }
     
+    console.log('録音を開始します')
     setIsListening(true)
     setError(null)
     startRecording()
