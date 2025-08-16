@@ -111,15 +111,20 @@ export function useExternalSpeechRecognition({
       
       const data = await response.json()
       console.log('APIレスポンスデータ:', data)
+      console.log('データ構造確認 - success:', data.success, 'result:', data.result)
       
       if (data.success && data.result) {
+        console.log('レスポンス処理開始')
+        
         // 話者ダイアライゼーション結果を処理
         if (data.result.speakers && Array.isArray(data.result.speakers)) {
+          console.log('話者ダイアライゼーション結果を処理:', data.result.speakers.length, '個のスピーカー')
           let fullText = ''
           
-          data.result.speakers.forEach((speakerSegment: any) => {
+          data.result.speakers.forEach((speakerSegment: any, index: number) => {
             const speakerName = generateSpeakerName(speakerSegment.speakerTag)
             fullText += speakerSegment.text + ' '
+            console.log(`スピーカー${index + 1}:`, speakerSegment.text, '話者名:', speakerName)
             
             // 各話者セグメントに対してコールバックを呼び出し
             const result: TranscriptResultWithSpeaker = {
@@ -133,22 +138,30 @@ export function useExternalSpeechRecognition({
               }
             }
             
+            console.log('onResultコールバック実行:', result)
             onResult?.(result)
           })
           
+          console.log('フルテキスト:', fullText)
           setTranscript(prev => prev + fullText)
         } else {
           // 話者識別なしの場合
+          console.log('単一話者として処理:', data.result.transcript || data.result.text)
+          const transcriptText = data.result.transcript || data.result.text || ''
+          
           const result: TranscriptResultWithSpeaker = {
-            text: data.result.transcript,
+            text: transcriptText,
             isFinal: true,
             confidence: data.result.confidence || 0.8,
             timestamp: new Date(),
           }
           
-          setTranscript(prev => prev + data.result.transcript + ' ')
+          console.log('onResultコールバック実行（単一話者）:', result)
+          setTranscript(prev => prev + transcriptText + ' ')
           onResult?.(result)
         }
+      } else {
+        console.warn('APIレスポンスの構造が不正:', data)
       }
     } catch (err) {
       console.error('音声認識API error:', err)
