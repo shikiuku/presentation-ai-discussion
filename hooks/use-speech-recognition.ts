@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { SpeechRecognitionManager, TranscriptResult } from '@/lib/speech-recognition'
+import { useMediaRecorderSpeech } from './use-media-recorder-speech'
 
 export interface UseSpeechRecognitionProps {
   lang?: string
@@ -9,6 +10,7 @@ export interface UseSpeechRecognitionProps {
   retryDelay?: number
   onResult?: (result: TranscriptResult) => void
   onError?: (error: string) => void
+  useMediaRecorderFallback?: boolean // MediaRecorderフォールバック機能を有効にする
 }
 
 export interface UseSpeechRecognitionReturn {
@@ -20,6 +22,7 @@ export interface UseSpeechRecognitionReturn {
   stop: () => void
   error: string | null
   getSupportInfo: () => any
+  usingFallback: boolean // MediaRecorderフォールバックを使用中かどうか
 }
 
 export function useSpeechRecognition({
@@ -30,16 +33,41 @@ export function useSpeechRecognition({
   retryDelay = 2000,
   onResult,
   onError,
+  useMediaRecorderFallback = true,
 }: UseSpeechRecognitionProps = {}): UseSpeechRecognitionReturn {
   const [isListening, setIsListening] = useState(false)
   const [isSupported, setIsSupported] = useState(false)
   const [transcript, setTranscript] = useState('')
   const [interimTranscript, setInterimTranscript] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [usingFallback, setUsingFallback] = useState(false)
   
   const recognitionRef = useRef<SpeechRecognitionManager | null>(null)
   const retryCountRef = useRef(0)
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  // MediaRecorderフォールバック
+  const mediaRecorderSpeech = useMediaRecorderSpeech({
+    recordingDuration: 5000,
+    autoRestart: true,
+    onTranscript: (text: string) => {
+      if (usingFallback) {
+        const result: TranscriptResult = {
+          text,
+          isFinal: true,
+          confidence: 0.8, // MediaRecorderのため推定値
+          timestamp: new Date(),
+        }
+        handleResult(result)
+      }
+    },
+    onError: (errorMessage: string) => {
+      if (usingFallback) {
+        setError(`MediaRecorder: ${errorMessage}`)
+        onError?.(errorMessage)
+      }
+    },
+  })
 
   // ブラウザサポートチェック
   useEffect(() => {
@@ -100,6 +128,20 @@ export function useSpeechRecognition({
       return
     }
     
+    // 再試行の上限に達した場合、MediaRecorderフォールバックを試行
+    if (useMediaRecorderFallback && !usingFallback && mediaRecorderSpeech.isSupported) {
+      console.log('Web Speech APIが失敗したため、MediaRecorderフォールバックに切り替えます')
+      setUsingFallback(true)
+      setError('音声認識を代替モードで継続します')
+      
+      // MediaRecorderを開始
+      setTimeout(() => {
+        mediaRecorderSpeech.start()
+      }, 1000)
+      
+      return
+    }
+    
     // 再試行の上限に達した場合や、再試行不可能なエラーの場合
     setError(errorMessage)
     setIsListening(false)
@@ -121,6 +163,12 @@ export function useSpeechRecognition({
 
   // 音声認識を開始
   const start = useCallback(() => {
+    if (usingFallback) {
+      // フォールバックモードの場合はMediaRecorderを開始
+      mediaRecorderSpeech.start()
+      return
+    }
+
     if (!isSupported) {
       handleError('このブラウザは音声認識をサポートしていません')
       return
@@ -145,7 +193,7 @@ export function useSpeechRecognition({
     } catch (err) {
       handleError('音声認識の開始に失敗しました')
     }
-  }, [isSupported, isListening, lang, continuous, interimResults, handleResult, handleError, handleStart, handleEnd])
+  }, [usingFallback, isSupported, isListening, lang, continuous, interimResults, handleResult, handleError, handleStart, handleEnd, mediaRecorderSpeech])
 
   // 音声認識を停止
   const stop = useCallback(() => {
@@ -158,10 +206,13 @@ export function useSpeechRecognition({
     // カウンターをリセット
     retryCountRef.current = 0
     
-    if (recognitionRef.current && isListening) {
+    if (usingFallback) {
+      // フォールバックモードの場合はMediaRecorderを停止
+      mediaRecorderSpeech.stop()
+    } else if (recognitionRef.current && isListening) {
       recognitionRef.current.stop()
     }
-  }, [isListening])
+  }, [usingFallback, isListening, mediaRecorderSpeech])
 
   // クリーンアップ
   useEffect(() => {
@@ -187,13 +238,14 @@ export function useSpeechRecognition({
   }, [])
 
   return {
-    isListening,
-    isSupported,
+    isListening: usingFallback ? mediaRecorderSpeech.isRecording : isListening,
+    isSupported: isSupported || mediaRecorderSpeech.isSupported,
     transcript,
     interimTranscript,
     start,
     stop,
     error,
     getSupportInfo,
+    usingFallback,
   }
 }
