@@ -28,6 +28,8 @@ import {
   User,
   Users,
   Loader2,
+  Search,
+  Shield,
 } from "lucide-react"
 
 interface AnalysisResult {
@@ -79,8 +81,7 @@ export default function PresentationAssistant({ params }: { params: { id: string
         }
         setTranscriptEntries(prev => [...prev, newEntry])
         
-        // 新しい発言に対してAI分析を実行
-        handleAutoAnalysis(result.text.trim())
+        // 自動分析は停止 - 手動トリガーに変更
       }
     },
     onError: (error) => {
@@ -100,67 +101,161 @@ export default function PresentationAssistant({ params }: { params: { id: string
     error: speechError,
   } = speechRecognition
 
-  // AI分析を実行する関数
-  const handleAutoAnalysis = async (text: string) => {
-    if (text.length < 10) return // 短すぎるテキストは分析しない
+  // ファクトチェック実行
+  const handleFactCheck = async (text: string, entryId: string) => {
+    if (text.length < 5) return
     
     setIsAnalyzing(true)
     
     try {
-      // ファクトチェック分析
-      const factCheckResponse = await fetch('/api/analysis', {
+      const response = await fetch('/api/analysis', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: 'fact-check',
           text: text,
+          userClaim: userClaim,
+          opponentClaim: opponentClaim,
+          debateTheme: '', // TODO: プロジェクトから取得する
         }),
       })
       
-      if (factCheckResponse.ok) {
-        const factCheckResult = await factCheckResponse.json()
-        const newFactCheckResult: AnalysisResult = {
+      if (response.ok) {
+        const result = await response.json()
+        const newResult: AnalysisResult = {
           id: `fact-${Date.now()}`,
           type: 'fact-check',
-          content: factCheckResult.result,
+          content: result.result,
           confidence: 'high',
           timestamp: new Date().toLocaleTimeString(),
         }
-        setAnalysisResults(prev => [...prev, newFactCheckResult])
+        setAnalysisResults(prev => [...prev, newResult])
+        setActiveNotification('ファクトチェックが完了しました')
+        setTimeout(() => setActiveNotification(null), 3000)
       }
-      
-      // 反論分析（ユーザーの主張と相手の主張がある場合）
-      if (userClaim && opponentClaim) {
-        const rebuttalResponse = await fetch('/api/analysis', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'rebuttal',
-            userClaim: userClaim,
-            opponentClaim: opponentClaim,
-          }),
-        })
-        
-        if (rebuttalResponse.ok) {
-          const rebuttalResult = await rebuttalResponse.json()
-          const newRebuttalResult: AnalysisResult = {
-            id: `rebuttal-${Date.now()}`,
-            type: 'rebuttal',
-            content: rebuttalResult.result,
-            confidence: 'medium',
-            timestamp: new Date().toLocaleTimeString(),
-          }
-          setAnalysisResults(prev => [...prev, newRebuttalResult])
-        }
-      }
-      
     } catch (error) {
-      console.error('分析エラー:', error)
-      setActiveNotification('AI分析中にエラーが発生しました')
+      console.error('ファクトチェックエラー:', error)
+      setActiveNotification('ファクトチェック中にエラーが発生しました')
       setTimeout(() => setActiveNotification(null), 3000)
     } finally {
       setIsAnalyzing(false)
     }
+  }
+
+  // 反論提案実行
+  const handleRebuttal = async (text: string, entryId: string) => {
+    if (!userClaim || !opponentClaim) {
+      setActiveNotification('あなたの主張と相手の主張を入力してください')
+      setTimeout(() => setActiveNotification(null), 3000)
+      return
+    }
+    
+    setIsAnalyzing(true)
+    
+    try {
+      const response = await fetch('/api/analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'rebuttal',
+          text: text,
+          userClaim: userClaim,
+          opponentClaim: opponentClaim,
+          debateTheme: '', // TODO: プロジェクトから取得する
+        }),
+      })
+      
+      if (response.ok) {
+        const result = await response.json()
+        const newResult: AnalysisResult = {
+          id: `rebuttal-${Date.now()}`,
+          type: 'rebuttal',
+          content: result.result,
+          confidence: 'medium',
+          timestamp: new Date().toLocaleTimeString(),
+        }
+        setAnalysisResults(prev => [...prev, newResult])
+        setActiveNotification('反論提案が完了しました')
+        setTimeout(() => setActiveNotification(null), 3000)
+      }
+    } catch (error) {
+      console.error('反論提案エラー:', error)
+      setActiveNotification('反論提案中にエラーが発生しました')
+      setTimeout(() => setActiveNotification(null), 3000)
+    } finally {
+      setIsAnalyzing(false)
+    }
+  }
+
+  // 用語説明実行
+  const handleTermExplanation = async (term: string, context: string) => {
+    if (term.length < 2) return
+    
+    setIsAnalyzing(true)
+    
+    try {
+      const response = await fetch('/api/analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'term-explanation',
+          term: term,
+          context: context,
+        }),
+      })
+      
+      if (response.ok) {
+        const result = await response.json()
+        const newResult: AnalysisResult = {
+          id: `term-${Date.now()}`,
+          type: 'term-explanation',
+          content: result.result,
+          confidence: 'high',
+          timestamp: new Date().toLocaleTimeString(),
+        }
+        setAnalysisResults(prev => [...prev, newResult])
+        setActiveNotification(`「${term}」の説明が完了しました`)
+        setTimeout(() => setActiveNotification(null), 3000)
+      }
+    } catch (error) {
+      console.error('用語説明エラー:', error)
+      setActiveNotification('用語説明中にエラーが発生しました')
+      setTimeout(() => setActiveNotification(null), 3000)
+    } finally {
+      setIsAnalyzing(false)
+    }
+  }
+
+  // 単語をクリック可能にするためのコンポーネント
+  const ClickableText = ({ text, entryContent }: { text: string, entryContent: string }) => {
+    const words = text.split(/(\s+|[、。！？])/);
+    
+    return (
+      <>
+        {words.map((word, index) => {
+          // スペースや記号は通常のテキストとして表示
+          if (/^\s+$/.test(word) || /^[、。！？]+$/.test(word)) {
+            return <span key={index}>{word}</span>
+          }
+          
+          // 単語（2文字以上）の場合はクリック可能にする
+          if (word.trim().length >= 2) {
+            return (
+              <span
+                key={index}
+                className="cursor-pointer hover:bg-yellow-200 hover:bg-opacity-50 rounded px-1 transition-colors"
+                onClick={() => handleTermExplanation(word.trim(), entryContent)}
+                title="クリックして用語説明を表示"
+              >
+                {word}
+              </span>
+            )
+          }
+          
+          return <span key={index}>{word}</span>
+        })}
+      </>
+    )
   }
 
   const toggleSidebarSection = (section: keyof typeof sidebarSections) => {
@@ -368,31 +463,59 @@ export default function PresentationAssistant({ params }: { params: { id: string
                         {transcriptEntries.map((entry) => (
                           <div
                             key={entry.id}
-                            className={`flex items-start space-x-3 p-3 rounded-lg ${
+                            className={`p-3 rounded-lg ${
                               entry.isCurrentUser
                                 ? "bg-primary/10 border-l-4 border-primary"
                                 : "bg-muted border-l-4 border-muted-foreground/30"
                             }`}
                           >
-                            <div className="flex-shrink-0 mt-1">
-                              {entry.isCurrentUser ? (
-                                <User className="h-4 w-4 text-primary" />
-                              ) : (
-                                <Users className="h-4 w-4 text-muted-foreground" />
-                              )}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center space-x-2 mb-1">
-                                <span
-                                  className={`text-sm font-medium ${
-                                    entry.isCurrentUser ? "text-primary" : "text-foreground"
-                                  }`}
-                                >
-                                  {entry.speaker}
-                                </span>
-                                <span className="text-xs text-muted-foreground">{entry.timestamp}</span>
+                            <div className="flex items-start space-x-3">
+                              <div className="flex-shrink-0 mt-1">
+                                {entry.isCurrentUser ? (
+                                  <User className="h-4 w-4 text-primary" />
+                                ) : (
+                                  <Users className="h-4 w-4 text-muted-foreground" />
+                                )}
                               </div>
-                              <p className="text-sm leading-relaxed text-foreground">{entry.content}</p>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center space-x-2 mb-1">
+                                  <span
+                                    className={`text-sm font-medium ${
+                                      entry.isCurrentUser ? "text-primary" : "text-foreground"
+                                    }`}
+                                  >
+                                    {entry.speaker}
+                                  </span>
+                                  <span className="text-xs text-muted-foreground">{entry.timestamp}</span>
+                                </div>
+                                <div className="text-sm leading-relaxed text-foreground mb-3">
+                                  <ClickableText text={entry.content} entryContent={entry.content} />
+                                </div>
+                                
+                                {/* AI分析ボタン */}
+                                <div className="flex items-center space-x-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleFactCheck(entry.content, entry.id)}
+                                    disabled={isAnalyzing || entry.content.length < 5}
+                                    className="text-xs h-7 px-2"
+                                  >
+                                    <Shield className="h-3 w-3 mr-1" />
+                                    ファクトチェック
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleRebuttal(entry.content, entry.id)}
+                                    disabled={isAnalyzing || !userClaim || !opponentClaim}
+                                    className="text-xs h-7 px-2"
+                                  >
+                                    <MessageSquare className="h-3 w-3 mr-1" />
+                                    反論提案
+                                  </Button>
+                                </div>
+                              </div>
                             </div>
                           </div>
                         ))}

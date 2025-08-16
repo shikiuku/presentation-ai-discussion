@@ -27,9 +27,7 @@ export default function ProjectSelection() {
   const [projectType, setProjectType] = useState<"debate" | "presentation" | null>(null)
   const [projectName, setProjectName] = useState("")
   const [projectDescription, setProjectDescription] = useState("")
-  const [myClaims, setMyClaims] = useState("")
-  const [opponentClaims, setOpponentClaims] = useState("")
-  const [expectedQuestions, setExpectedQuestions] = useState("")
+  const [debateTheme, setDebateTheme] = useState("")
 
   const [projects] = useState<Project[]>([
     {
@@ -70,9 +68,7 @@ export default function ProjectSelection() {
       name: projectName,
       description: projectDescription,
       type: projectType,
-      myClaims,
-      opponentClaims: projectType === "debate" ? opponentClaims : undefined,
-      expectedQuestions: projectType === "presentation" ? expectedQuestions : undefined,
+      debateTheme: projectType === "debate" ? debateTheme : undefined,
     })
 
     // Reset form and close dialog
@@ -80,18 +76,14 @@ export default function ProjectSelection() {
     setProjectType(null)
     setProjectName("")
     setProjectDescription("")
-    setMyClaims("")
-    setOpponentClaims("")
-    setExpectedQuestions("")
+    setDebateTheme("")
   }
 
   const resetCreateForm = () => {
     setProjectType(null)
     setProjectName("")
     setProjectDescription("")
-    setMyClaims("")
-    setOpponentClaims("")
-    setExpectedQuestions("")
+    setDebateTheme("")
   }
 
   const filteredProjects = projects.filter(
@@ -222,39 +214,14 @@ export default function ProjectSelection() {
                           />
                         </div>
 
-                        <div>
-                          <Label htmlFor="myClaims">あなたの主張</Label>
-                          <Textarea
-                            id="myClaims"
-                            value={myClaims}
-                            onChange={(e) => setMyClaims(e.target.value)}
-                            placeholder="あなたの主張や論点を入力..."
-                            rows={4}
-                          />
-                        </div>
-
                         {projectType === "debate" && (
                           <div>
-                            <Label htmlFor="opponentClaims">相手の主張</Label>
-                            <Textarea
-                              id="opponentClaims"
-                              value={opponentClaims}
-                              onChange={(e) => setOpponentClaims(e.target.value)}
-                              placeholder="相手の主張や論点を入力..."
-                              rows={4}
-                            />
-                          </div>
-                        )}
-
-                        {projectType === "presentation" && (
-                          <div>
-                            <Label htmlFor="expectedQuestions">想定される質問</Label>
-                            <Textarea
-                              id="expectedQuestions"
-                              value={expectedQuestions}
-                              onChange={(e) => setExpectedQuestions(e.target.value)}
-                              placeholder="想定される質問や懸念点を入力..."
-                              rows={4}
+                            <Label htmlFor="debateTheme">討論テーマ</Label>
+                            <Input
+                              id="debateTheme"
+                              value={debateTheme}
+                              onChange={(e) => setDebateTheme(e.target.value)}
+                              placeholder="討論のテーマを入力... (例: 環境保護 vs 経済発展)"
                             />
                           </div>
                         )}

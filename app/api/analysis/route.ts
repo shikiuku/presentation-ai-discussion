@@ -3,7 +3,7 @@ import { performFactCheck, generateRebuttal, explainTerm } from '@/lib/gemini'
 
 export async function POST(request: Request) {
   try {
-    const { type, text, userClaim, opponentClaim, term, context } = await request.json()
+    const { type, text, userClaim, opponentClaim, term, context, debateTheme } = await request.json()
 
     let result: string
 
@@ -12,14 +12,21 @@ export async function POST(request: Request) {
         if (!text) {
           return NextResponse.json({ error: 'テキストが必要です' }, { status: 400 })
         }
-        result = await performFactCheck(text)
+        result = await performFactCheck(text, {
+          debateTheme,
+          userClaim,
+          opponentClaim
+        })
         break
 
       case 'rebuttal':
         if (!userClaim || !opponentClaim) {
           return NextResponse.json({ error: 'ユーザーの主張と相手の主張が必要です' }, { status: 400 })
         }
-        result = await generateRebuttal(userClaim, opponentClaim)
+        result = await generateRebuttal(userClaim, opponentClaim, {
+          debateTheme,
+          currentStatement: text
+        })
         break
 
       case 'term-explanation':
