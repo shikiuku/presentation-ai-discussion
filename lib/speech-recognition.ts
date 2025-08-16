@@ -59,12 +59,17 @@ export interface SpeechRecognitionConfig {
   onError?: (error: string) => void
   onStart?: () => void
   onEnd?: () => void
+  // 新しい設定オプション
+  fallbackMode?: boolean  // フォールバック機能を有効にする
+  shortSession?: boolean  // 短いセッションモード（ネットワーク負荷軽減）
 }
 
 export class SpeechRecognitionManager {
   private recognition: SpeechRecognition | null = null
   private isListening = false
   private config: SpeechRecognitionConfig
+  private fallbackAttempts = 0
+  private maxFallbackAttempts = 2
 
   constructor(config: SpeechRecognitionConfig = {}) {
     this.config = {
@@ -72,6 +77,8 @@ export class SpeechRecognitionManager {
       continuous: true,
       interimResults: true,
       maxAlternatives: 1,
+      fallbackMode: true,
+      shortSession: false,
       ...config,
     }
   }
@@ -91,14 +98,45 @@ export class SpeechRecognitionManager {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     const recognition = new SpeechRecognition()
 
-    // 設定を適用
+    // 設定を適用 - より安定した設定に変更
     recognition.lang = this.config.lang || 'ja-JP'
-    recognition.continuous = this.config.continuous || true
-    recognition.interimResults = this.config.interimResults || true
-    recognition.maxAlternatives = this.config.maxAlternatives || 1
+    
+    // フォールバックモードでは、より安定した設定を使用
+    if (this.config.fallbackMode && this.fallbackAttempts > 0) {
+      recognition.continuous = false  // フォールバック時は短いセッション
+      recognition.interimResults = false  // フォールバック時は最終結果のみ
+      recognition.maxAlternatives = 1
+    } else {
+      recognition.continuous = this.config.continuous !== false
+      recognition.interimResults = this.config.interimResults !== false
+      recognition.maxAlternatives = this.config.maxAlternatives || 1
+    }
+    
+    // 短いセッションモード
+    if (this.config.shortSession) {
+      recognition.continuous = false
+      recognition.interimResults = false
+    }
+    
+    // より安定した音声認識のための追加設定
+    if ('serviceURI' in recognition) {
+      // Googleの音声認識サービスを明示的に指定
+      recognition.serviceURI = 'wss://www.google.com/speech-api/v2/recognize'
+    }
+    
+    // グラマーをリセットして軽量化
+    if ('grammars' in recognition && recognition.grammars) {
+      recognition.grammars.length = 0
+    }
 
     // イベントハンドラを設定
     recognition.onstart = () => {
+      console.log('音声認識開始:', { 
+        fallbackAttempts: this.fallbackAttempts,
+        continuous: recognition.continuous,
+        interimResults: recognition.interimResults,
+        lang: recognition.lang
+      })
       this.isListening = true
       this.config.onStart?.()
     }
@@ -113,22 +151,27 @@ export class SpeechRecognitionManager {
       
       // エラーの詳細なメッセージを提供
       let errorMessage = '音声認識エラーが発生しました'
+      let shouldTryFallback = false
       
       switch (event.error) {
         case 'network':
           errorMessage = 'ネットワークエラーです。インターネット接続を確認してください'
+          shouldTryFallback = true
           break
         case 'not-allowed':
           errorMessage = 'マイクの許可が必要です。ブラウザ設定でマイクを許可してください'
           break
         case 'no-speech':
           errorMessage = '音声が検出されませんでした。マイクが正常に動作しているか確認してください'
+          shouldTryFallback = true
           break
         case 'audio-capture':
           errorMessage = 'オーディオキャプチャエラーです。マイクが使用できません'
+          shouldTryFallback = true
           break
         case 'service-not-allowed':
           errorMessage = '音声認識サービスが利用できません'
+          shouldTryFallback = true
           break
         case 'aborted':
           errorMessage = '音声認識が中断されました'
@@ -138,12 +181,37 @@ export class SpeechRecognitionManager {
           break
         default:
           errorMessage = `音声認識エラー: ${event.error}`
+          shouldTryFallback = true
       }
       
+      // フォールバックモードを試行
+      if (this.config.fallbackMode && shouldTryFallback && this.fallbackAttempts < this.maxFallbackAttempts) {
+        this.fallbackAttempts++
+        console.log(`フォールバックモードを試行します (${this.fallbackAttempts}/${this.maxFallbackAttempts})`)
+        
+        // 1秒後にフォールバックモードで再試行
+        setTimeout(() => {
+          try {
+            this.recognition = this.initializeRecognition()
+            this.recognition.start()
+          } catch (err) {
+            console.error('フォールバック再試行に失敗:', err)
+            this.config.onError?.(errorMessage)
+          }
+        }, 1000)
+        
+        return
+      }
+      
+      // フォールバック試行回数をリセット
+      this.fallbackAttempts = 0
       this.config.onError?.(errorMessage)
     }
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
+      // 正常に結果が得られた場合、フォールバック試行回数をリセット
+      this.fallbackAttempts = 0
+      
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i]
         const transcript = result[0].transcript
@@ -196,6 +264,28 @@ export class SpeechRecognitionManager {
   // 現在の状態を取得
   public getIsListening(): boolean {
     return this.isListening
+  }
+
+  // 音声認識の詳細サポート情報を取得
+  public getSupportInfo(): {
+    isSupported: boolean
+    hasWebkit: boolean
+    hasNative: boolean
+    userAgent: string
+    isHTTPS: boolean
+    permissionState?: string
+  } {
+    const hasWebkit = typeof window !== 'undefined' && 'webkitSpeechRecognition' in window
+    const hasNative = typeof window !== 'undefined' && 'SpeechRecognition' in window
+    const isHTTPS = typeof window !== 'undefined' && window.location.protocol === 'https:'
+    
+    return {
+      isSupported: this.isSupported(),
+      hasWebkit,
+      hasNative,
+      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+      isHTTPS,
+    }
   }
 
   // 設定を更新

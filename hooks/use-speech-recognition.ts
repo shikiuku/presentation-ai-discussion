@@ -19,6 +19,7 @@ export interface UseSpeechRecognitionReturn {
   start: () => void
   stop: () => void
   error: string | null
+  getSupportInfo: () => any
 }
 
 export function useSpeechRecognition({
@@ -176,6 +177,15 @@ export function useSpeechRecognition({
     }
   }, [])
 
+  // デバッグ情報を取得する関数
+  const getSupportInfo = useCallback(() => {
+    if (recognitionRef.current) {
+      return recognitionRef.current.getSupportInfo()
+    }
+    const tempRecognition = new SpeechRecognitionManager()
+    return tempRecognition.getSupportInfo()
+  }, [])
+
   return {
     isListening,
     isSupported,
@@ -184,5 +194,6 @@ export function useSpeechRecognition({
     start,
     stop,
     error,
+    getSupportInfo,
   }
 }
