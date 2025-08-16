@@ -46,27 +46,44 @@ export function useSpeechRecognition({
   const retryCountRef = useRef(0)
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
+  // 結果処理関数を先に定義
+  const handleResultCallback = useCallback((result: TranscriptResult) => {
+    if (result.isFinal) {
+      setTranscript(prev => prev + result.text + ' ')
+      setInterimTranscript('')
+    } else {
+      setInterimTranscript(result.text)
+    }
+    
+    onResult?.(result)
+  }, [onResult])
+
+  // MediaRecorderフォールバックのコールバック関数
+  const handleMediaRecorderTranscript = useCallback((text: string) => {
+    if (usingFallback) {
+      const result: TranscriptResult = {
+        text,
+        isFinal: true,
+        confidence: 0.8, // MediaRecorderのため推定値
+        timestamp: new Date(),
+      }
+      handleResultCallback(result)
+    }
+  }, [usingFallback, handleResultCallback])
+
+  const handleMediaRecorderError = useCallback((errorMessage: string) => {
+    if (usingFallback) {
+      setError(`MediaRecorder: ${errorMessage}`)
+      onError?.(errorMessage)
+    }
+  }, [usingFallback, onError])
+
   // MediaRecorderフォールバック
   const mediaRecorderSpeech = useMediaRecorderSpeech({
     recordingDuration: 5000,
     autoRestart: true,
-    onTranscript: (text: string) => {
-      if (usingFallback) {
-        const result: TranscriptResult = {
-          text,
-          isFinal: true,
-          confidence: 0.8, // MediaRecorderのため推定値
-          timestamp: new Date(),
-        }
-        handleResult(result)
-      }
-    },
-    onError: (errorMessage: string) => {
-      if (usingFallback) {
-        setError(`MediaRecorder: ${errorMessage}`)
-        onError?.(errorMessage)
-      }
-    },
+    onTranscript: handleMediaRecorderTranscript,
+    onError: handleMediaRecorderError,
   })
 
   // ブラウザサポートチェック
@@ -87,17 +104,8 @@ export function useSpeechRecognition({
     setIsListening(false)
   }, [])
 
-  // 結果処理関数
-  const handleResult = useCallback((result: TranscriptResult) => {
-    if (result.isFinal) {
-      setTranscript(prev => prev + result.text + ' ')
-      setInterimTranscript('')
-    } else {
-      setInterimTranscript(result.text)
-    }
-    
-    onResult?.(result)
-  }, [onResult])
+  // handleResult を handleResultCallback のエイリアスとして定義
+  const handleResult = handleResultCallback
 
   // エラー処理関数（再試行ロジック付き）
   const handleError = useCallback((errorMessage: string, canRetry: boolean = false) => {

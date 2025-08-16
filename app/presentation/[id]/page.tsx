@@ -64,15 +64,7 @@ export default function PresentationAssistant({ params }: { params: { id: string
   const transcriptIdCounter = useRef(0)
 
   // 音声認識フックを使用
-  const {
-    isListening,
-    isSupported,
-    transcript,
-    interimTranscript,
-    start: startSpeechRecognition,
-    stop: stopSpeechRecognition,
-    error: speechError,
-  } = useSpeechRecognition({
+  const speechRecognition = useSpeechRecognition({
     lang: 'ja-JP',
     continuous: true,
     interimResults: true,
@@ -96,6 +88,17 @@ export default function PresentationAssistant({ params }: { params: { id: string
       setTimeout(() => setActiveNotification(null), 5000)
     },
   })
+
+  // speechRecognitionオブジェクトから値を分割代入
+  const {
+    isListening,
+    isSupported,
+    transcript,
+    interimTranscript,
+    start: startSpeechRecognition,
+    stop: stopSpeechRecognition,
+    error: speechError,
+  } = speechRecognition
 
   // AI分析を実行する関数
   const handleAutoAnalysis = async (text: string) => {
