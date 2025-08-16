@@ -71,7 +71,10 @@ export default function PresentationAssistant({ params }: { params: { id: string
     continuous: true,
     recordingDuration: 5000,
     onResult: (result) => {
+      console.log('プレゼンテーション画面 - onResult受信:', result)
+      
       if (result.isFinal) {
+        console.log('ファイナル結果を処理中...')
         const speakerName = result.speaker ? result.speaker.speakerName : "あなた"
         const isCurrentUser = !result.speaker || result.speaker.speakerTag === 1
         
@@ -82,7 +85,18 @@ export default function PresentationAssistant({ params }: { params: { id: string
           timestamp: new Date().toLocaleTimeString(),
           isCurrentUser: isCurrentUser,
         }
-        setTranscriptEntries(prev => [...prev, newEntry])
+        
+        console.log('新しいトランスクリプトエントリ作成:', newEntry)
+        console.log('setTranscriptEntries実行前 - 現在のエントリ数:', transcriptEntries.length)
+        
+        setTranscriptEntries(prev => {
+          console.log('setTranscriptEntries内 - 前の配列:', prev.length, '個')
+          const newArray = [...prev, newEntry]
+          console.log('setTranscriptEntries内 - 新しい配列:', newArray.length, '個')
+          return newArray
+        })
+        
+        console.log('setTranscriptEntries実行完了')
         
         // 自動分析は停止 - 手動トリガーに変更
       }
