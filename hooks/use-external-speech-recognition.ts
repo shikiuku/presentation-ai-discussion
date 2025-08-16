@@ -187,11 +187,23 @@ export function useExternalSpeechRecognition({
         mimeType: 'audio/webm;codecs=opus'
       }
       
+      console.log('MediaRecorderサポート確認:', MediaRecorder.isTypeSupported(options.mimeType))
+      
       if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        console.log('opus非サポート - audio/webmに変更')
         options.mimeType = 'audio/webm'
       }
       
-      mediaRecorderRef.current = new MediaRecorder(stream, options)
+      console.log('使用するMIMEタイプ:', options.mimeType)
+      console.log('MediaRecorder作成中...')
+      
+      try {
+        mediaRecorderRef.current = new MediaRecorder(stream, options)
+        console.log('MediaRecorder作成成功')
+      } catch (err) {
+        console.error('MediaRecorder作成エラー:', err)
+        throw err
+      }
       chunksRef.current = []
       
       mediaRecorderRef.current.ondataavailable = (event) => {
