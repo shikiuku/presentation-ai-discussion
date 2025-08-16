@@ -92,19 +92,25 @@ export function useExternalSpeechRecognition({
   // 音声データを外部APIに送信して分析
   const sendAudioToAPI = useCallback(async (audioBlob: Blob) => {
     try {
+      console.log('sendAudioToAPI: 開始 - ファイルサイズ:', audioBlob.size)
+      
       const formData = new FormData()
       formData.append('audio', audioBlob, 'audio.webm')
       
+      console.log('API呼び出し中: /api/speech')
       const response = await fetch('/api/speech', {
         method: 'POST',
         body: formData,
       })
+      
+      console.log('APIレスポンス受信 - ステータス:', response.status)
       
       if (!response.ok) {
         throw new Error(`API error: ${response.status}`)
       }
       
       const data = await response.json()
+      console.log('APIレスポンスデータ:', data)
       
       if (data.success && data.result) {
         // 話者ダイアライゼーション結果を処理
@@ -196,8 +202,13 @@ export function useExternalSpeechRecognition({
       
       mediaRecorderRef.current.onstop = async () => {
         const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' })
+        console.log('録音停止 - 音声データサイズ:', audioBlob.size, 'bytes')
+        
         if (audioBlob.size > 0) {
+          console.log('音声データをAPIに送信中...')
           await sendAudioToAPI(audioBlob)
+        } else {
+          console.warn('音声データが空です')
         }
         
         // ストリームを停止
