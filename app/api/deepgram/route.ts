@@ -104,9 +104,29 @@ export async function POST(request: Request) {
 
   } catch (error) {
     console.error('Deepgram API error:', error)
+    
+    // エラーの詳細を判別
+    let errorMessage = '音声認識中にエラーが発生しました'
+    let statusCode = 500
+    
+    if (error instanceof Error) {
+      if (error.message.includes('Unauthorized') || error.message.includes('401')) {
+        errorMessage = 'APIキーが無効です。環境変数を確認してください。'
+        statusCode = 401
+      } else if (error.message.includes('rate limit')) {
+        errorMessage = 'API利用制限に達しました。しばらく待ってから再試行してください。'
+        statusCode = 429
+      }
+      
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack
+      })
+    }
+    
     return NextResponse.json(
-      { error: '音声認識中にエラーが発生しました' },
-      { status: 500 }
+      { error: errorMessage },
+      { status: statusCode }
     )
   }
 }
