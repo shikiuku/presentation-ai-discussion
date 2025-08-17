@@ -92,6 +92,7 @@ export function useExternalSpeechRecognition({
   // 音声データを外部APIに送信して分析
   const sendAudioToAPI = useCallback(async (audioBlob: Blob) => {
     try {
+      console.log('Sending audio blob to Deepgram API. Size:', audioBlob.size, 'bytes')
       const formData = new FormData()
       formData.append('audio', audioBlob, 'audio.webm')
       
@@ -101,17 +102,21 @@ export function useExternalSpeechRecognition({
       })
       
       if (!response.ok) {
+        console.error('API response not ok:', response.status, response.statusText)
         throw new Error(`API error: ${response.status}`)
       }
       
       const data = await response.json()
+      console.log('Deepgram API response:', data)
       
       if (data.success && data.result) {
         // 話者ダイアライゼーション結果を処理
         if (data.result.speakers && Array.isArray(data.result.speakers)) {
+          console.log('Found', data.result.speakers.length, 'speaker segments')
           let fullText = ''
           
-          data.result.speakers.forEach((speakerSegment: any) => {
+          data.result.speakers.forEach((speakerSegment: any, index: number) => {
+            console.log(`Processing speaker segment ${index + 1}:`, speakerSegment)
             const speakerName = generateSpeakerName(speakerSegment.speakerTag)
             fullText += speakerSegment.text + ' '
             
@@ -127,24 +132,34 @@ export function useExternalSpeechRecognition({
               }
             }
             
+            console.log('Calling onResult with:', result)
             onResult?.(result)
           })
           
           setTranscript(prev => prev + fullText)
+          console.log('Updated transcript with speaker segments')
         } else {
           // 話者識別なしの場合
           const transcriptText = data.result.transcript || data.result.text || ''
+          console.log('No speaker segments found. Transcript text:', transcriptText)
           
-          const result: TranscriptResultWithSpeaker = {
-            text: transcriptText,
-            isFinal: true,
-            confidence: data.result.confidence || 0.8,
-            timestamp: new Date(),
+          if (transcriptText) {
+            const result: TranscriptResultWithSpeaker = {
+              text: transcriptText,
+              isFinal: true,
+              confidence: data.result.confidence || 0.8,
+              timestamp: new Date(),
+            }
+            
+            console.log('Calling onResult with non-speaker result:', result)
+            setTranscript(prev => prev + transcriptText + ' ')
+            onResult?.(result)
+          } else {
+            console.log('No transcript text found in response')
           }
-          
-          setTranscript(prev => prev + transcriptText + ' ')
-          onResult?.(result)
         }
+      } else {
+        console.log('API response success was false or no result:', data)
       }
     } catch (err) {
       console.error('音声認識API error:', err)
@@ -152,7 +167,7 @@ export function useExternalSpeechRecognition({
       setError(errorMessage)
       onError?.(errorMessage)
     }
-  }, [onResult, onError])
+  }, [onResult, onError, generateSpeakerName])
 
   // MediaRecorderの設定と開始
   const startRecording = useCallback(async () => {
@@ -193,28 +208,38 @@ export function useExternalSpeechRecognition({
       
       mediaRecorderRef.current.onstop = async () => {
         const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' })
+        console.log('Recording stopped. Audio blob size:', audioBlob.size, 'bytes')
         
         if (audioBlob.size > 0) {
+          console.log('Sending audio to API...')
           await sendAudioToAPI(audioBlob)
+        } else {
+          console.log('Audio blob is empty, skipping API call')
         }
         
         // ストリームを停止
         stream.getTracks().forEach(track => track.stop())
+        console.log('Audio stream stopped')
         
         // 連続録音の場合は再開
         if (continuous && isListening) {
+          console.log('Restarting recording in 100ms...')
           setTimeout(() => {
             startRecording()
           }, 100)
+        } else {
+          console.log('Not restarting recording. Continuous:', continuous, 'IsListening:', isListening)
         }
       }
       
       mediaRecorderRef.current.start()
       setError(null)
+      console.log('Recording started for', recordingDuration, 'ms')
       
       // 一定時間後に停止して音声を送信
       recordingIntervalRef.current = setTimeout(() => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          console.log('Stopping recording after', recordingDuration, 'ms')
           mediaRecorderRef.current.stop()
         }
       }, recordingDuration)
