@@ -47,6 +47,13 @@ export function useStreamingSpeechRecognition({
   const chunksRef = useRef<Blob[]>([])
   const streamingIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const sessionIdRef = useRef<string>('')
+  const isListeningRef = useRef<boolean>(false)
+
+  // isListeningのrefを同期
+  useEffect(() => {
+    isListeningRef.current = isListening
+    console.log('isListeningRef updated to:', isListening)
+  }, [isListening])
 
   // ブラウザサポートチェック
   useEffect(() => {
@@ -241,11 +248,15 @@ export function useStreamingSpeechRecognition({
       
       // 定期的に音声データを送信
       streamingIntervalRef.current = setInterval(() => {
-        if (!isListening) {
+        console.log('Interval tick, isListeningRef.current:', isListeningRef.current)
+        if (!isListeningRef.current) {
+          console.log('Not listening, skipping audio chunk send')
           return
         }
+        console.log('Sending audio chunk from interval...')
         sendAudioChunk()
       }, chunkSize)
+      console.log('Streaming interval started with', chunkSize, 'ms interval')
       
       console.log('Streaming recognition setup completed successfully')
 
@@ -257,7 +268,7 @@ export function useStreamingSpeechRecognition({
       console.log('Error occurred, setting isListening back to false')
       setIsListening(false)
     }
-  }, [isListening, chunkSize, sendAudioChunk, onError])
+  }, [chunkSize, sendAudioChunk, onError])
 
   // 録音開始
   const start = useCallback(() => {
@@ -283,7 +294,7 @@ export function useStreamingSpeechRecognition({
     setIsListening(true)
     console.log('isListening should now be true, calling startStreamingRecognition')
     startStreamingRecognition()
-  }, [isSupported, isListening, startStreamingRecognition, onError])
+  }, [isSupported, startStreamingRecognition, onError])
 
   // 録音停止
   const stop = useCallback(() => {
@@ -311,7 +322,7 @@ export function useStreamingSpeechRecognition({
     }
     
     console.log('Streaming recognition stopped')
-  }, [sendAudioChunk, isListening])
+  }, [sendAudioChunk])
 
   // クリーンアップ - コンポーネントのアンマウント時のみ
   useEffect(() => {
