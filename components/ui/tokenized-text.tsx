@@ -119,7 +119,12 @@ export function TokenizedText({ text, className = "" }: TokenizedTextProps) {
   return (
     <div className={className}>
       {words.map((word, index) => {
-        // 空白や記号は通常のテキストとして表示
+        // 空白や記号は表示しない（単語間の空白を削除）
+        if (/^\s+$/.test(word.surface)) {
+          return null
+        }
+
+        // 記号類は通常のテキストとして表示（空白なし）
         if (!word.isContent || word.surface.trim().length < 2) {
           return (
             <span key={index} className="text-foreground">

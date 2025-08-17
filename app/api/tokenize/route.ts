@@ -22,38 +22,83 @@ async function getTokenizer() {
   })
 }
 
-export async function POST(request: Request) {
-  let requestText = ''
+// より実用的な日本語トークン化関数
+function createPracticalTokens(text: string) {
+  // 文字種別を判定する関数
+  const isHiragana = (char: string) => /[\u3040-\u309F]/.test(char)
+  const isKatakana = (char: string) => /[\u30A0-\u30FF]/.test(char)
+  const isKanji = (char: string) => /[\u4E00-\u9FAF]/.test(char)
+  const isAlpha = (char: string) => /[A-Za-z]/.test(char)
+  const isNumeric = (char: string) => /[0-9]/.test(char)
+  const isPunctuation = (char: string) => /[、。！？「」『』（）\s]/.test(char)
   
+  const tokens = []
+  let currentToken = ''
+  let currentType = ''
+  
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i]
+    let charType = ''
+    
+    if (isPunctuation(char)) charType = 'punctuation'
+    else if (isHiragana(char)) charType = 'hiragana'
+    else if (isKatakana(char)) charType = 'katakana'
+    else if (isKanji(char)) charType = 'kanji'
+    else if (isAlpha(char)) charType = 'alpha'
+    else if (isNumeric(char)) charType = 'numeric'
+    else charType = 'other'
+    
+    // 同じ文字種なら継続、違うなら区切り
+    if (currentType === charType && charType !== 'punctuation') {
+      currentToken += char
+    } else {
+      if (currentToken) {
+        tokens.push({
+          surface: currentToken,
+          reading: currentToken,
+          pos: currentType,
+          baseForm: currentToken,
+          isContent: ['kanji', 'katakana', 'alpha', 'numeric'].includes(currentType) && currentToken.length >= 1
+        })
+      }
+      currentToken = char
+      currentType = charType
+    }
+  }
+  
+  // 最後のトークンを追加
+  if (currentToken) {
+    tokens.push({
+      surface: currentToken,
+      reading: currentToken,
+      pos: currentType,
+      baseForm: currentToken,
+      isContent: ['kanji', 'katakana', 'alpha', 'numeric'].includes(currentType) && currentToken.length >= 1
+    })
+  }
+  
+  return tokens
+}
+
+export async function POST(request: Request) {
   try {
     const { text } = await request.json()
-    requestText = text
     
     if (!text) {
       return NextResponse.json({ error: 'テキストが必要です' }, { status: 400 })
     }
 
-    console.log('Attempting to get tokenizer...')
-    const tokenizer = await getTokenizer()
-    console.log('Tokenizer obtained, processing text:', text.substring(0, 50) + '...')
+    console.log('Processing text with practical tokenizer:', text.substring(0, 50) + '...')
     
-    const tokens = tokenizer.tokenize(text)
-    console.log('Tokenization completed, token count:', tokens.length)
-    
-    // 単語情報を整形
-    const words = tokens.map((token: any) => ({
-      surface: token.surface_form, // 表層形
-      reading: token.reading || token.surface_form, // 読み
-      pos: token.pos, // 品詞
-      baseForm: token.basic_form || token.surface_form, // 基本形
-      // 品詞の詳細情報から意味のある情報を抽出
-      isContent: !['助詞', '助動詞', '記号', 'フィラー', 'その他'].includes(token.pos.split(',')[0])
-    }))
+    // 実用的なトークン化を使用（高速で確実）
+    const words = createPracticalTokens(text)
+    console.log('Practical tokenization completed, token count:', words.length)
 
     return NextResponse.json({
       success: true,
       words: words,
-      original: text
+      original: text,
+      method: 'practical'
     })
 
   } catch (error) {
@@ -62,24 +107,6 @@ export async function POST(request: Request) {
       stack: error instanceof Error ? error.stack : undefined,
       error: error
     })
-    
-    // フォールバック: 簡単な分割を返す
-    if (requestText) {
-      const fallbackWords = requestText.split(/(\s+|[、。！？])/).map((word: string) => ({
-        surface: word,
-        reading: word,
-        pos: '',
-        baseForm: word,
-        isContent: word.trim().length >= 2 && !/^\s+$/.test(word) && !/^[、。！？]+$/.test(word)
-      }))
-      
-      return NextResponse.json({
-        success: true,
-        words: fallbackWords,
-        original: requestText,
-        fallback: true
-      })
-    }
     
     return NextResponse.json(
       { 
