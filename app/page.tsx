@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Plus, Presentation, Calendar, Users, MoreVertical, Search, MessageSquare, X, Newspaper } from "lucide-react"
+import { Plus, Presentation, Calendar, Users, MoreVertical, Search, MessageSquare, X, Newspaper, Image, Loader2 } from "lucide-react"
 
 interface Project {
   id: string
@@ -29,6 +29,18 @@ export default function ProjectSelection() {
   const [projectDescription, setProjectDescription] = useState("")
   const [debateTheme, setDebateTheme] = useState("")
   const [interviewTarget, setInterviewTarget] = useState("")
+  
+  // 画像検索関連の状態
+  const [imageSearchQuery, setImageSearchQuery] = useState("")
+  const [imageSearchResults, setImageSearchResults] = useState<{
+    keyword: string
+    images: Array<{
+      url: string
+      title: string
+      source: string
+    }>
+    isLoading: boolean
+  } | null>(null)
 
   const [projects, setProjects] = useState<Project[]>([
     {
@@ -125,6 +137,53 @@ export default function ProjectSelection() {
     setProjectDescription("")
     setDebateTheme("")
     setInterviewTarget("")
+  }
+
+  // 画像検索を実行する関数
+  const handleImageSearch = async (keyword: string) => {
+    if (keyword.trim().length < 2) return
+
+    setImageSearchResults({
+      keyword: keyword.trim(),
+      images: [],
+      isLoading: true
+    })
+
+    try {
+      const response = await fetch('/api/image-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyword: keyword.trim() })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        setImageSearchResults({
+          keyword: keyword.trim(),
+          images: result.images || [],
+          isLoading: false
+        })
+      } else {
+        setImageSearchResults({
+          keyword: keyword.trim(),
+          images: [],
+          isLoading: false
+        })
+      }
+    } catch (error) {
+      console.error('Image search error:', error)
+      setImageSearchResults({
+        keyword: keyword.trim(),
+        images: [],
+        isLoading: false
+      })
+    }
+  }
+
+  // 画像検索をクリアする関数
+  const clearImageSearch = () => {
+    setImageSearchResults(null)
+    setImageSearchQuery("")
   }
 
   const filteredProjects = projects.filter(
@@ -318,17 +377,111 @@ export default function ProjectSelection() {
 
       <div className="container mx-auto px-4 py-8">
         {/* Search and Filter */}
-        <div className="mb-8">
-          <div className="relative max-w-md">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="プロジェクトを検索..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
+        <div className="mb-8 space-y-4">
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="プロジェクトを検索..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <div className="relative flex-1 max-w-md">
+              <Image className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="画像を検索..."
+                value={imageSearchQuery}
+                onChange={(e) => setImageSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && imageSearchQuery.trim()) {
+                    handleImageSearch(imageSearchQuery.trim())
+                  }
+                }}
+                className="pl-10"
+              />
+              {imageSearchQuery && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleImageSearch(imageSearchQuery.trim())}
+                  className="absolute right-1 top-1/2 transform -translate-y-1/2 h-8 px-2"
+                >
+                  検索
+                </Button>
+              )}
+            </div>
           </div>
         </div>
+
+        {/* Image Search Results Card */}
+        {imageSearchResults && (
+          <div className="mb-8">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg flex items-center">
+                    <Image className="h-5 w-5 mr-2 text-blue-600" />
+                    画像検索結果: "{imageSearchResults.keyword}"
+                  </CardTitle>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearImageSearch}
+                    className="h-8 w-8 p-0"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {imageSearchResults.isLoading ? (
+                  <div className="flex items-center justify-center p-8">
+                    <Loader2 className="h-6 w-6 animate-spin mr-2 text-blue-600" />
+                    <span className="text-sm text-muted-foreground">画像を検索中...</span>
+                  </div>
+                ) : imageSearchResults.images.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    {imageSearchResults.images.slice(0, 12).map((image, index) => (
+                      <div key={index} className="group relative">
+                        <div className="aspect-square overflow-hidden rounded-lg border border-border hover:border-primary transition-colors">
+                          <img
+                            src={image.url}
+                            alt={image.title}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200 cursor-pointer"
+                            onClick={() => window.open(image.url, '_blank')}
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement
+                              target.src = `https://via.placeholder.com/200x200/e2e8f0/64748b?text=${encodeURIComponent(imageSearchResults.keyword)}`
+                            }}
+                          />
+                        </div>
+                        <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all rounded-lg flex items-center justify-center">
+                          <span className="text-white text-xs opacity-0 group-hover:opacity-100 bg-black bg-opacity-70 px-2 py-1 rounded">
+                            拡大表示
+                          </span>
+                        </div>
+                        {image.title && (
+                          <p className="mt-1 text-xs text-muted-foreground truncate" title={image.title}>
+                            {image.title}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Image className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">
+                      "{imageSearchResults.keyword}"の画像が見つかりませんでした
+                    </span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* Projects Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
