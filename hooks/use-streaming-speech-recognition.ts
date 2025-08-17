@@ -60,7 +60,19 @@ export function useStreamingSpeechRecognition({
                                window.location.protocol === 'https:' || 
                                window.location.hostname === 'localhost'
         
-        return hasMediaRecorder && hasMediaDevices && hasSecureContext
+        console.log('Browser support check:', {
+          hasMediaRecorder,
+          hasMediaDevices,
+          hasSecureContext,
+          protocol: window.location.protocol,
+          hostname: window.location.hostname,
+          isSecureContext: window.isSecureContext
+        })
+        
+        const isSupported = hasMediaRecorder && hasMediaDevices && hasSecureContext
+        console.log('Speech recognition supported:', isSupported)
+        
+        return isSupported
       } catch (error) {
         console.error('Support check error:', error)
         return false
@@ -177,12 +189,14 @@ export function useStreamingSpeechRecognition({
   // ストリーミング録音の開始
   const startStreamingRecognition = useCallback(async () => {
     try {
+      console.log('startStreamingRecognition called, current isListening:', isListening)
       setError(null)
       
       // セッションIDを生成
       sessionIdRef.current = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       console.log('Starting streaming session:', sessionIdRef.current)
 
+      console.log('Requesting getUserMedia...')
       // 音声ストリーム取得
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
@@ -193,6 +207,7 @@ export function useStreamingSpeechRecognition({
           autoGainControl: true,
         } 
       })
+      console.log('getUserMedia successful, stream:', stream)
       
       audioStreamRef.current = stream
 
@@ -221,7 +236,8 @@ export function useStreamingSpeechRecognition({
       
       // 短い間隔で録音を開始（データを頻繁に生成）
       mediaRecorderRef.current.start(chunkSize / 2) // chunkSizeの半分の間隔でデータ生成
-      console.log('Streaming recording started with', chunkSize, 'ms chunks')
+      console.log('MediaRecorder.start() called successfully with', chunkSize, 'ms chunks')
+      console.log('MediaRecorder state:', mediaRecorderRef.current.state)
       
       // 定期的に音声データを送信
       streamingIntervalRef.current = setInterval(() => {
@@ -230,32 +246,42 @@ export function useStreamingSpeechRecognition({
         }
         sendAudioChunk()
       }, chunkSize)
+      
+      console.log('Streaming recognition setup completed successfully')
 
     } catch (err) {
       console.error('Streaming recognition start error:', err)
       const errorMessage = `ストリーミング音声認識開始エラー: ${err instanceof Error ? err.message : '不明なエラー'}`
       setError(errorMessage)
       onError?.(errorMessage)
+      console.log('Error occurred, setting isListening back to false')
       setIsListening(false)
     }
   }, [isListening, chunkSize, sendAudioChunk, onError])
 
   // 録音開始
   const start = useCallback(() => {
+    console.log('Start called, isSupported:', isSupported, 'isListening:', isListening)
+    
     if (!isSupported) {
       const errorMessage = 'このブラウザはストリーミング音声認識をサポートしていません'
+      console.error('Not supported:', errorMessage)
       setError(errorMessage)
       onError?.(errorMessage)
       return
     }
     
     if (isListening) {
+      console.log('Already listening, returning')
       return
     }
     
+    console.log('Starting streaming recognition...')
     setError(null)
     setInterimTranscript('')
+    console.log('Setting isListening to true')
     setIsListening(true)
+    console.log('isListening should now be true, calling startStreamingRecognition')
     startStreamingRecognition()
   }, [isSupported, isListening, startStreamingRecognition, onError])
 

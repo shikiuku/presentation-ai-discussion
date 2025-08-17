@@ -103,6 +103,18 @@ export default function PresentationAssistant({ params }: { params: { id: string
     error: speechError,
     speakers,
   } = speechRecognition
+  
+  // 状態変化をログ出力
+  useEffect(() => {
+    console.log('Speech recognition state changed:', {
+      isListening,
+      isSupported,
+      hasError: !!speechError,
+      speakerCount: Object.keys(speakers).length
+    })
+    console.log('Button text should be:', isListening ? "プレゼン終了" : "プレゼン開始")
+    console.log('Button className should include:', isListening ? "bg-destructive" : "bg-primary")
+  }, [isListening, isSupported, speechError, speakers])
 
   // ファクトチェック実行
   const handleFactCheck = async (text: string, entryId: string) => {
@@ -238,14 +250,18 @@ export default function PresentationAssistant({ params }: { params: { id: string
   }
 
   const toggleRecording = () => {
+    console.log('toggleRecording called, isListening:', isListening, 'isSupported:', isSupported)
+    
     if (!isListening) {
       if (!isSupported) {
         setActiveNotification('このブラウザは音声認識をサポートしていません')
         setTimeout(() => setActiveNotification(null), 3000)
         return
       }
+      console.log('Starting speech recognition...')
       startSpeechRecognition()
     } else {
+      console.log('Stopping speech recognition...')
       stopSpeechRecognition()
     }
   }
@@ -300,6 +316,9 @@ export default function PresentationAssistant({ params }: { params: { id: string
     }
   }, [isDarkMode])
 
+  // レンダリング時の状態をログ出力
+  console.log('Rendering with isListening:', isListening, 'isSupported:', isSupported)
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
@@ -321,7 +340,10 @@ export default function PresentationAssistant({ params }: { params: { id: string
                 {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
               </Button>
               <Button
-                onClick={toggleRecording}
+                onClick={() => {
+                  console.log('Button clicked! Current isListening:', isListening, 'isSupported:', isSupported)
+                  toggleRecording()
+                }}
                 className={`${isListening ? "bg-destructive hover:bg-destructive/90" : "bg-primary hover:bg-primary/90"}`}
                 disabled={!isSupported}
               >
