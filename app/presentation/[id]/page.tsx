@@ -9,7 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
-import { useExternalSpeechRecognition } from "@/hooks/use-external-speech-recognition"
+import { useStreamingSpeechRecognition } from "@/hooks/use-streaming-speech-recognition"
 import { TokenizedText } from "@/components/ui/tokenized-text"
 import {
   Mic,
@@ -66,11 +66,10 @@ export default function PresentationAssistant({ params }: { params: { id: string
   const transcriptRef = useRef<HTMLDivElement>(null)
   const transcriptIdCounter = useRef(0)
 
-  // 外部音声認識フックを使用（話者識別対応）
-  const speechRecognition = useExternalSpeechRecognition({
+  // ストリーミング音声認識フックを使用（リアルタイム・話者識別対応）
+  const speechRecognition = useStreamingSpeechRecognition({
     lang: 'ja-JP',
-    continuous: true,
-    recordingDuration: 12000,
+    chunkSize: 1000, // 1秒ごとに処理（リアルタイム性向上）
     onResult: (result) => {
       if (result.isFinal) {
         const speakerName = result.speaker ? result.speaker.speakerName : "あなた"
@@ -399,7 +398,7 @@ export default function PresentationAssistant({ params }: { params: { id: string
                       </div>
                     )}
                     <Badge variant="secondary" className="ml-2 text-xs">
-                      外部音声認識・話者識別対応
+                      リアルタイムストリーミング・話者識別対応
                     </Badge>
                     {Object.keys(speakers).length > 0 && (
                       <Badge variant="outline" className="ml-2 text-xs">
