@@ -41,6 +41,7 @@ import {
   Clock,
   Trash2,
   ArrowRight,
+  Image,
 } from "lucide-react"
 
 interface AnalysisResult {
@@ -610,6 +611,7 @@ export default function PresentationAssistant({ params }: { params: { id: string
     }
   }
 
+
   // 自動スクロール
   useEffect(() => {
     if (transcriptRef.current) {
@@ -859,6 +861,63 @@ export default function PresentationAssistant({ params }: { params: { id: string
               </div>
             )}
 
+            {/* Image Search Results Card */}
+            {imageSearchResults && (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg flex items-center">
+                      <Search className="h-5 w-5 mr-2 text-blue-600" />
+                      画像検索: {imageSearchResults.keyword}
+                    </CardTitle>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setImageSearchResults(null)}
+                      className="h-8 w-8 p-0"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {imageSearchResults.isLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin mr-2 text-blue-600" />
+                      <span className="text-sm">画像を検索中...</span>
+                    </div>
+                  ) : imageSearchResults.images.length > 0 ? (
+                    <div className="grid grid-cols-3 gap-3">
+                      {imageSearchResults.images.slice(0, 6).map((image, index) => (
+                        <div key={index} className="group relative">
+                          <img
+                            src={image.url}
+                            alt={image.title}
+                            className="w-full h-24 object-cover rounded border hover:opacity-80 transition-opacity cursor-pointer"
+                            onClick={() => window.open(image.url, '_blank')}
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none'
+                            }}
+                          />
+                          <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all rounded flex items-center justify-center">
+                            <span className="text-white text-xs opacity-0 group-hover:opacity-100 bg-black bg-opacity-50 px-2 py-1 rounded">
+                              拡大
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-4">
+                      <span className="text-sm text-muted-foreground">
+                        「{imageSearchResults.keyword}」の画像が見つかりませんでした
+                      </span>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
             {/* Speaker Control Section */}
             <Card>
               <CardHeader>
@@ -922,62 +981,6 @@ export default function PresentationAssistant({ params }: { params: { id: string
               </CardContent>
             </Card>
 
-            {/* Image Search Results Card */}
-            {imageSearchResults && (
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg flex items-center">
-                      <Search className="h-5 w-5 mr-2 text-blue-600" />
-                      画像検索: {imageSearchResults.keyword}
-                    </CardTitle>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setImageSearchResults(null)}
-                      className="h-8 w-8 p-0"
-                    >
-                      ×
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  {imageSearchResults.isLoading ? (
-                    <div className="flex items-center justify-center p-8">
-                      <Loader2 className="h-6 w-6 animate-spin mr-2" />
-                      <span className="text-sm">画像を検索中...</span>
-                    </div>
-                  ) : imageSearchResults.images.length > 0 ? (
-                    <div className="grid grid-cols-3 gap-3">
-                      {imageSearchResults.images.slice(0, 6).map((image, index) => (
-                        <div key={index} className="group relative">
-                          <img
-                            src={image.url}
-                            alt={image.title}
-                            className="w-full h-24 object-cover rounded border hover:opacity-80 transition-opacity cursor-pointer"
-                            onClick={() => window.open(image.url, '_blank')}
-                            onError={(e) => {
-                              e.currentTarget.style.display = 'none'
-                            }}
-                          />
-                          <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all rounded flex items-center justify-center">
-                            <span className="text-white text-xs opacity-0 group-hover:opacity-100 bg-black bg-opacity-50 px-2 py-1 rounded">
-                              拡大
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-4">
-                      <span className="text-sm text-muted-foreground">
-                        「{imageSearchResults.keyword}」の画像が見つかりませんでした
-                      </span>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
 
             {/* Pending Transcripts Section */}
             {pendingTranscripts.length > 0 && (
@@ -1173,6 +1176,64 @@ export default function PresentationAssistant({ params }: { params: { id: string
                     )}
                   </div>
                 </ScrollArea>
+              </CardContent>
+            </Card>
+
+            {/* Image Search Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center">
+                  <Image className="h-5 w-5 mr-2 text-blue-600" />
+                  画像検索
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {imageSearchResults ? (
+                  <div className="space-y-4">
+                    <div className="text-sm font-medium text-muted-foreground">
+                      キーワード: "{imageSearchResults.keyword}"
+                    </div>
+                    {imageSearchResults.isLoading ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        <span className="text-sm">画像を検索中...</span>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2">
+                        {imageSearchResults.images.map((image, index) => (
+                          <div key={index} className="space-y-1">
+                            <img
+                              src={image.url}
+                              alt={image.title}
+                              className="w-full h-24 object-cover rounded-lg border"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement
+                                target.src = `https://via.placeholder.com/200x150/e2e8f0/64748b?text=${encodeURIComponent(imageSearchResults.keyword)}`
+                              }}
+                            />
+                            <p className="text-xs text-muted-foreground truncate">
+                              {image.title}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {!imageSearchResults.isLoading && imageSearchResults.images.length === 0 && (
+                      <div className="text-center py-4">
+                        <span className="text-sm text-muted-foreground">
+                          画像が見つかりませんでした
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Image className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">
+                      単語をタップして画像を検索
+                    </span>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
