@@ -287,6 +287,7 @@ export function useStreamingSpeechRecognition({
 
   // 録音停止
   const stop = useCallback(() => {
+    console.log('Stop function called, current isListening:', isListening)
     setIsListening(false)
     setInterimTranscript('')
     
@@ -310,14 +311,28 @@ export function useStreamingSpeechRecognition({
     }
     
     console.log('Streaming recognition stopped')
-  }, [sendAudioChunk])
+  }, [sendAudioChunk, isListening])
 
-  // クリーンアップ
+  // クリーンアップ - コンポーネントのアンマウント時のみ
   useEffect(() => {
     return () => {
-      stop()
+      console.log('Component unmounting, cleaning up speech recognition')
+      // アンマウント時のみクリーンアップを実行
+      if (streamingIntervalRef.current) {
+        clearInterval(streamingIntervalRef.current)
+        streamingIntervalRef.current = null
+      }
+      
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop()
+      }
+      
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach(track => track.stop())
+        audioStreamRef.current = null
+      }
     }
-  }, [stop])
+  }, []) // 空の依存配列でマウント時のみ実行
 
   return {
     isListening,
