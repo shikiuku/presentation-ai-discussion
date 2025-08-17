@@ -10,6 +10,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { useExternalSpeechRecognition } from "@/hooks/use-external-speech-recognition"
+import { TokenizedText } from "@/components/ui/tokenized-text"
 import {
   Mic,
   MicOff,
@@ -229,37 +230,6 @@ export default function PresentationAssistant({ params }: { params: { id: string
     }
   }
 
-  // 単語をクリック可能にするためのコンポーネント
-  const ClickableText = ({ text, entryContent }: { text: string, entryContent: string }) => {
-    const words = text.split(/(\s+|[、。！？])/);
-    
-    return (
-      <>
-        {words.map((word, index) => {
-          // スペースや記号は通常のテキストとして表示
-          if (/^\s+$/.test(word) || /^[、。！？]+$/.test(word)) {
-            return <span key={index}>{word}</span>
-          }
-          
-          // 単語（2文字以上）の場合はクリック可能にする
-          if (word.trim().length >= 2) {
-            return (
-              <span
-                key={index}
-                className="cursor-pointer hover:bg-yellow-200 hover:bg-opacity-50 rounded px-1 transition-colors"
-                onClick={() => handleTermExplanation(word.trim(), entryContent)}
-                title="クリックして用語説明を表示"
-              >
-                {word}
-              </span>
-            )
-          }
-          
-          return <span key={index}>{word}</span>
-        })}
-      </>
-    )
-  }
 
   const toggleSidebarSection = (section: keyof typeof sidebarSections) => {
     setSidebarSections((prev) => ({
@@ -495,7 +465,7 @@ export default function PresentationAssistant({ params }: { params: { id: string
                                   <span className="text-xs text-muted-foreground">{entry.timestamp}</span>
                                 </div>
                                 <div className="text-sm leading-relaxed text-foreground mb-3">
-                                  <ClickableText text={entry.content} entryContent={entry.content} />
+                                  <TokenizedText text={entry.content} />
                                 </div>
                                 
                                 {/* AI分析ボタン */}
