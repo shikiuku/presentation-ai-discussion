@@ -34,6 +34,13 @@ import {
   Upload,
   FileAudio,
   HelpCircle,
+  Newspaper,
+  PenTool,
+  Target,
+  Plus,
+  Clock,
+  Trash2,
+  ArrowRight,
 } from "lucide-react"
 
 interface AnalysisResult {
@@ -50,6 +57,7 @@ interface TranscriptEntry {
   content: string
   timestamp: string
   isCurrentUser: boolean
+  confidence?: number
 }
 
 export default function PresentationAssistant({ params }: { params: { id: string } }) {
@@ -58,7 +66,13 @@ export default function PresentationAssistant({ params }: { params: { id: string
   const [opponentClaim, setOpponentClaim] = useState("")
   const [questionContent, setQuestionContent] = useState("") // 質問内容
   const [summary, setSummary] = useState("") // 要約
-  const [projectType, setProjectType] = useState<"presentation" | "discussion">("presentation") // プロジェクトタイプ
+  const [projectType, setProjectType] = useState<"presentation" | "discussion" | "interview">("presentation") // プロジェクトタイプ
+  
+  // 取材用の状態変数
+  const [interviewTopic, setInterviewTopic] = useState("") // 取材テーマ
+  const [interviewQuestions, setInterviewQuestions] = useState("") // 事前質問リスト
+  const [keyPoints, setKeyPoints] = useState("") // 重要ポイント
+  const [followUpQuestions, setFollowUpQuestions] = useState("") // 追加質問
   
   // プロジェクトデータを取得する関数
   const fetchProjectData = async (projectId: string) => {
@@ -66,8 +80,8 @@ export default function PresentationAssistant({ params }: { params: { id: string
       // ここで実際のプロジェクトデータを取得
       // 現在はローカルストレージから取得する実装
       const savedProjectType = localStorage.getItem(`project_${projectId}_type`)
-      if (savedProjectType && (savedProjectType === "presentation" || savedProjectType === "discussion")) {
-        setProjectType(savedProjectType)
+      if (savedProjectType && (savedProjectType === "presentation" || savedProjectType === "discussion" || savedProjectType === "interview")) {
+        setProjectType(savedProjectType as "presentation" | "discussion" | "interview")
       }
     } catch (error) {
       console.error("Failed to fetch project data:", error)
@@ -75,7 +89,7 @@ export default function PresentationAssistant({ params }: { params: { id: string
   }
 
   // プロジェクトタイプを保存する関数（プロジェクト作成時に使用）
-  const saveProjectType = (projectId: string, type: "presentation" | "discussion") => {
+  const saveProjectType = (projectId: string, type: "presentation" | "discussion" | "interview") => {
     try {
       localStorage.setItem(`project_${projectId}_type`, type)
       setProjectType(type)
@@ -95,8 +109,27 @@ export default function PresentationAssistant({ params }: { params: { id: string
   
   // 新しい話者管理の状態
   const [participantCount, setParticipantCount] = useState(2) // 参加者数
-  const [currentSpeaker, setCurrentSpeaker] = useState(1) // 現在の話者（1から始まる）
+  const [currentSpeaker, setCurrentSpeaker] = useState(1) // 現在の話者（1から始まる、0は保留）
   const [participants, setParticipants] = useState<string[]>(['参加者1', '参加者2']) // 参加者名
+  
+  // 保留機能の状態
+  const [pendingTranscripts, setPendingTranscripts] = useState<Array<{
+    id: string
+    text: string
+    timestamp: string
+    confidence: number
+  }>>([]) // 保留されたテキスト
+  
+  // 画像検索機能の状態
+  const [imageSearchResults, setImageSearchResults] = useState<{
+    keyword: string
+    images: Array<{
+      url: string
+      title: string
+      source: string
+    }>
+    isLoading: boolean
+  } | null>(null)
   
   const [sidebarSections, setSidebarSections] = useState({
     factCheck: true,
@@ -125,9 +158,131 @@ export default function PresentationAssistant({ params }: { params: { id: string
     }
   }
 
-  // 話者切り替え処理
+  // 話者切り替え処理（0は保留、1以上は話者）
   const switchToSpeaker = (speakerIndex: number) => {
     setCurrentSpeaker(speakerIndex)
+  }
+
+  // 保留機能の処理
+  const holdCurrentTranscript = () => {
+    const currentText = webSpeechRecognition.interimTranscript || webSpeechRecognition.transcript
+    if (currentText.trim()) {
+      const pendingItem = {
+        id: `pending-${Date.now()}`,
+        text: currentText.trim(),
+        timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+        confidence: 0.8
+      }
+      
+      setPendingTranscripts(prev => [...prev, pendingItem])
+      console.log('保留されたテキスト:', pendingItem)
+      
+      showNotification('テキストを保留しました')
+    } else {
+      // テキストがない場合は空の保留項目を作成
+      const pendingItem = {
+        id: `pending-${Date.now()}`,
+        text: '（テキストなし - 手動入力してください）',
+        timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+        confidence: 0.5
+      }
+      
+      setPendingTranscripts(prev => [...prev, pendingItem])
+      showNotification('保留項目を作成しました')
+    }
+  }
+
+  // 保留されたテキストを特定の話者に割り当て
+  const assignPendingToSpeaker = (pendingId: string, speakerIndex: number) => {
+    const pendingItem = pendingTranscripts.find(item => item.id === pendingId)
+    if (pendingItem) {
+      // 通常のトランスクリプトとして追加
+      const newEntry: TranscriptEntry = {
+        id: `transcript-${transcriptIdCounter.current++}`,
+        content: pendingItem.text,
+        timestamp: pendingItem.timestamp,
+        speaker: participants[speakerIndex - 1],
+        isCurrentUser: speakerIndex === currentSpeaker,
+        confidence: pendingItem.confidence,
+        source: 'web-speech-pending'
+      }
+      
+      setTranscriptEntries(prev => [...prev, newEntry])
+      
+      // 保留リストから削除
+      setPendingTranscripts(prev => prev.filter(item => item.id !== pendingId))
+      
+      setActiveNotification(`「${participants[speakerIndex - 1]}」に割り当てました`)
+      setTimeout(() => setActiveNotification(null), 3000)
+    }
+  }
+
+  // 保留されたテキストを削除
+  const removePendingTranscript = (pendingId: string) => {
+    setPendingTranscripts(prev => prev.filter(item => item.id !== pendingId))
+    setActiveNotification('保留されたテキストを削除しました')
+    setTimeout(() => setActiveNotification(null), 3000)
+  }
+
+  // トランスクリプトの話者を変更（保留から話者へ）
+  const changeSpeakerFromTranscript = (transcriptId: string, speakerIndex: number) => {
+    if (speakerIndex < 1 || speakerIndex > participants.length) return
+
+    setTranscriptEntries(prev => 
+      prev.map(entry => 
+        entry.id === transcriptId 
+          ? { ...entry, speaker: participants[speakerIndex - 1] }
+          : entry
+      )
+    )
+
+    setActiveNotification(`話者を「${participants[speakerIndex - 1]}」に変更しました`)
+    setTimeout(() => setActiveNotification(null), 3000)
+  }
+
+  // 単語の画像検索を実行
+  const handleWordImageSearch = async (keyword: string) => {
+    if (keyword.length < 2) return
+
+    setImageSearchResults({
+      keyword: keyword,
+      images: [],
+      isLoading: true
+    })
+
+    try {
+      const response = await fetch('/api/image-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyword: keyword })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        setImageSearchResults({
+          keyword: keyword,
+          images: result.images || [],
+          isLoading: false
+        })
+      } else {
+        setImageSearchResults({
+          keyword: keyword,
+          images: [],
+          isLoading: false
+        })
+        setActiveNotification('画像検索でエラーが発生しました')
+        setTimeout(() => setActiveNotification(null), 3000)
+      }
+    } catch (error) {
+      console.error('Image search error:', error)
+      setImageSearchResults({
+        keyword: keyword,
+        images: [],
+        isLoading: false
+      })
+      setActiveNotification('画像検索に失敗しました')
+      setTimeout(() => setActiveNotification(null), 3000)
+    }
   }
 
   // 音声ファイルアップロード処理
@@ -224,15 +379,30 @@ export default function PresentationAssistant({ params }: { params: { id: string
       console.log('Web Speech result:', result)
       
       if (result.isFinal && result.text.trim()) {
-        const newEntry: TranscriptEntry = {
-          id: (++webSpeechIdCounter.current).toString(),
-          speaker: participants[currentSpeaker - 1], // 現在の話者名
-          content: result.text.trim(),
-          timestamp: new Date().toLocaleTimeString(),
-          isCurrentUser: true, // Web Speech APIは常にユーザー入力
+        if (currentSpeaker === 0) {
+          // 保留モードの場合は話者名を「保留」としてトランスクリプトに追加
+          const newEntry: TranscriptEntry = {
+            id: (++webSpeechIdCounter.current).toString(),
+            speaker: "保留",
+            content: result.text.trim(),
+            timestamp: new Date().toLocaleTimeString(),
+            isCurrentUser: true,
+          }
+          
+          setTranscriptEntries(prev => [...prev, newEntry])
+          console.log('音声認識結果を保留として追加:', newEntry)
+        } else {
+          // 通常の話者モードの場合は直接追加
+          const newEntry: TranscriptEntry = {
+            id: (++webSpeechIdCounter.current).toString(),
+            speaker: participants[currentSpeaker - 1], // 現在の話者名
+            content: result.text.trim(),
+            timestamp: new Date().toLocaleTimeString(),
+            isCurrentUser: true, // Web Speech APIは常にユーザー入力
+          }
+          
+          setTranscriptEntries(prev => [...prev, newEntry])
         }
-        
-        setTranscriptEntries(prev => [...prev, newEntry])
       }
     },
     onError: (error) => {
@@ -500,12 +670,13 @@ export default function PresentationAssistant({ params }: { params: { id: string
                   <select
                     id="project-type"
                     value={projectType}
-                    onChange={(e) => saveProjectType(params.id, e.target.value as "presentation" | "discussion")}
+                    onChange={(e) => saveProjectType(params.id, e.target.value as "presentation" | "discussion" | "interview")}
                     disabled={webSpeechRecognition.isListening}
                     className="px-2 py-1 text-xs border border-border rounded bg-background text-foreground"
                   >
                     <option value="presentation">プレゼン</option>
                     <option value="discussion">議論</option>
+                    <option value="interview">取材</option>
                   </select>
                 </div>
               </div>
@@ -542,56 +713,7 @@ export default function PresentationAssistant({ params }: { params: { id: string
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Main Content Area */}
           <div className="lg:col-span-3 space-y-6">
-            {/* Speaker Control Section */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center">
-                  <Users className="h-5 w-5 mr-2 text-primary" />
-                  話者切り替えコントロール
-                  {webSpeechRecognition.isListening && (
-                    <div className="ml-2 flex items-center">
-                      <div className="h-2 w-2 bg-red-500 rounded-full animate-pulse mr-2"></div>
-                      <span className="text-sm text-muted-foreground">録音中</span>
-                    </div>
-                  )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <span className="font-medium text-base">現在の話者:</span>
-                    <div className="flex space-x-2">
-                      {participants.map((participant, index) => (
-                        <Button
-                          key={index + 1}
-                          variant={currentSpeaker === index + 1 ? "default" : "outline"}
-                          size="lg"
-                          onClick={() => switchToSpeaker(index + 1)}
-                          disabled={false}
-                          className={`px-4 py-2 text-sm font-medium ${
-                            currentSpeaker === index + 1 
-                              ? "bg-primary text-primary-foreground shadow-md" 
-                              : "bg-background text-foreground hover:bg-muted"
-                          }`}
-                        >
-                          話者 {index + 1}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-lg font-semibold text-primary">
-                      {participants[currentSpeaker - 1]}
-                    </span>
-                    <p className="text-sm text-muted-foreground">
-                      録音中でも自由に話者を切り替えできます
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Claims Input Section */}
+            {/* Content Input Section */}
             {projectType === "presentation" ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Card>
@@ -628,7 +750,7 @@ export default function PresentationAssistant({ params }: { params: { id: string
                   </CardContent>
                 </Card>
               </div>
-            ) : (
+            ) : projectType === "discussion" ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Card>
                   <CardHeader>
@@ -664,8 +786,245 @@ export default function PresentationAssistant({ params }: { params: { id: string
                   </CardContent>
                 </Card>
               </div>
+            ) : (
+              // 取材モード
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center">
+                      <Newspaper className="h-5 w-5 mr-2 text-blue-600" />
+                      取材テーマ
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Textarea
+                      placeholder="取材の目的やテーマを入力してください..."
+                      value={interviewTopic}
+                      onChange={(e) => setInterviewTopic(e.target.value)}
+                      className="min-h-[120px] resize-none"
+                    />
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center">
+                      <HelpCircle className="h-5 w-5 mr-2 text-green-600" />
+                      事前質問リスト
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Textarea
+                      placeholder="予め準備した質問を入力してください（1行1質問）..."
+                      value={interviewQuestions}
+                      onChange={(e) => setInterviewQuestions(e.target.value)}
+                      className="min-h-[120px] resize-none"
+                    />
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center">
+                      <Target className="h-5 w-5 mr-2 text-orange-600" />
+                      重要ポイント
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Textarea
+                      placeholder="必ず聞き出したい重要なポイントを入力してください..."
+                      value={keyPoints}
+                      onChange={(e) => setKeyPoints(e.target.value)}
+                      className="min-h-[120px] resize-none"
+                    />
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center">
+                      <Plus className="h-5 w-5 mr-2 text-purple-600" />
+                      追加質問メモ
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Textarea
+                      placeholder="会話の流れで生まれた追加質問をメモしてください..."
+                      value={followUpQuestions}
+                      onChange={(e) => setFollowUpQuestions(e.target.value)}
+                      className="min-h-[120px] resize-none"
+                    />
+                  </CardContent>
+                </Card>
+              </div>
             )}
 
+            {/* Speaker Control Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center">
+                  <Users className="h-5 w-5 mr-2 text-primary" />
+                  話者切り替えコントロール
+                  {webSpeechRecognition.isListening && (
+                    <div className="ml-2 flex items-center">
+                      <div className="h-2 w-2 bg-red-500 rounded-full animate-pulse mr-2"></div>
+                      <span className="text-sm text-muted-foreground">録音中</span>
+                    </div>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-4">
+                    <span className="font-medium text-base">現在の話者:</span>
+                    <div className="flex space-x-2">
+                      <Button
+                        variant="outline"
+                        size="lg"
+                        onClick={() => switchToSpeaker(0)}
+                        disabled={false}
+                        className={`px-4 py-2 text-sm font-medium ${
+                          currentSpeaker === 0 
+                            ? "border-blue-500 border-2 bg-background text-foreground hover:bg-muted" 
+                            : "bg-background text-foreground hover:bg-muted"
+                        }`}
+                      >
+                        <Clock className="h-4 w-4 mr-2" />
+                        保留
+                      </Button>
+                      {participants.map((participant, index) => (
+                        <Button
+                          key={index + 1}
+                          variant={currentSpeaker === index + 1 ? "default" : "outline"}
+                          size="lg"
+                          onClick={() => switchToSpeaker(index + 1)}
+                          disabled={false}
+                          className={`px-4 py-2 text-sm font-medium ${
+                            currentSpeaker === index + 1 
+                              ? "bg-primary text-primary-foreground shadow-md" 
+                              : "bg-background text-foreground hover:bg-muted"
+                          }`}
+                        >
+                          話者 {index + 1}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-lg font-semibold text-primary">
+                      {currentSpeaker === 0 ? "保留中" : participants[currentSpeaker - 1]}
+                    </span>
+                    <p className="text-sm text-muted-foreground">
+                      録音中でも自由に話者を切り替えできます
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Image Search Results Card */}
+            {imageSearchResults && (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg flex items-center">
+                      <Search className="h-5 w-5 mr-2 text-blue-600" />
+                      画像検索: {imageSearchResults.keyword}
+                    </CardTitle>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setImageSearchResults(null)}
+                      className="h-8 w-8 p-0"
+                    >
+                      ×
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {imageSearchResults.isLoading ? (
+                    <div className="flex items-center justify-center p-8">
+                      <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                      <span className="text-sm">画像を検索中...</span>
+                    </div>
+                  ) : imageSearchResults.images.length > 0 ? (
+                    <div className="grid grid-cols-3 gap-3">
+                      {imageSearchResults.images.slice(0, 6).map((image, index) => (
+                        <div key={index} className="group relative">
+                          <img
+                            src={image.url}
+                            alt={image.title}
+                            className="w-full h-24 object-cover rounded border hover:opacity-80 transition-opacity cursor-pointer"
+                            onClick={() => window.open(image.url, '_blank')}
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none'
+                            }}
+                          />
+                          <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all rounded flex items-center justify-center">
+                            <span className="text-white text-xs opacity-0 group-hover:opacity-100 bg-black bg-opacity-50 px-2 py-1 rounded">
+                              拡大
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-4">
+                      <span className="text-sm text-muted-foreground">
+                        「{imageSearchResults.keyword}」の画像が見つかりませんでした
+                      </span>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Pending Transcripts Section */}
+            {pendingTranscripts.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center">
+                    <Clock className="h-5 w-5 mr-2 text-orange-600" />
+                    保留されたテキスト ({pendingTranscripts.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {pendingTranscripts.map((pending) => (
+                      <div key={pending.id} className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                        <div className="flex items-start justify-between mb-2">
+                          <span className="text-xs text-orange-600 font-medium">{pending.timestamp}</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removePendingTranscript(pending.id)}
+                            className="h-6 w-6 p-0 text-orange-600 hover:text-red-600"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                        <p className="text-sm text-gray-800 mb-3">{pending.text}</p>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs text-gray-600 mr-2">割り当て先:</span>
+                          {participants.map((participant, index) => (
+                            <Button
+                              key={index + 1}
+                              variant="outline"
+                              size="sm"
+                              onClick={() => assignPendingToSpeaker(pending.id, index + 1)}
+                              className="h-7 px-3 text-xs"
+                            >
+                              話者 {index + 1}
+                              <ArrowRight className="h-3 w-3 ml-1" />
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Live Transcript */}
             <Card className="flex-1">
@@ -740,9 +1099,28 @@ export default function PresentationAssistant({ params }: { params: { id: string
                                     {entry.speaker}
                                   </span>
                                   <span className="text-xs text-muted-foreground">{entry.timestamp}</span>
+                                  {entry.speaker === "保留" && (
+                                    <div className="flex items-center space-x-1 ml-2">
+                                      <span className="text-xs text-muted-foreground">→</span>
+                                      {participants.map((participant, index) => (
+                                        <Button
+                                          key={index + 1}
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => changeSpeakerFromTranscript(entry.id, index + 1)}
+                                          className="h-5 px-2 text-xs"
+                                        >
+                                          話者{index + 1}
+                                        </Button>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
                                 <div className="text-sm leading-relaxed text-foreground mb-3">
-                                  <TokenizedText text={entry.content} />
+                                  <TokenizedText 
+                                    text={entry.content} 
+                                    onWordImageSearch={handleWordImageSearch}
+                                  />
                                 </div>
                                 
                                 {/* AI分析ボタン */}
@@ -777,7 +1155,7 @@ export default function PresentationAssistant({ params }: { params: { id: string
                             <div className="inline-flex items-center px-4 py-2 bg-accent/20 rounded-lg">
                               <div className="h-2 w-2 bg-red-500 rounded-full animate-pulse mr-2"></div>
                               <span className="text-sm text-muted-foreground">
-                                録音中... (話者: {participants[currentSpeaker - 1]})
+                                録音中... (話者: {currentSpeaker === 0 ? "保留中" : participants[currentSpeaker - 1]})
                               </span>
                             </div>
                           </div>
@@ -822,7 +1200,7 @@ export default function PresentationAssistant({ params }: { params: { id: string
           {/* Analysis Sidebar */}
           <div className="lg:col-span-1 space-y-4">
             {/* Audio File Upload Section */}
-            <Card className="sticky top-6">
+            <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center">
                   <FileAudio className="h-4 w-4 mr-2 text-purple-600" />

@@ -8,13 +8,13 @@ import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Plus, Presentation, Calendar, Users, MoreVertical, Search, MessageSquare, X } from "lucide-react"
+import { Plus, Presentation, Calendar, Users, MoreVertical, Search, MessageSquare, X, Newspaper } from "lucide-react"
 
 interface Project {
   id: string
   name: string
   description: string
-  type: "debate" | "presentation"
+  type: "debate" | "presentation" | "interview"
   createdAt: string
   lastUsed: string
   participantCount: number
@@ -24,12 +24,13 @@ interface Project {
 export default function ProjectSelection() {
   const [searchQuery, setSearchQuery] = useState("")
   const [showCreateDialog, setShowCreateDialog] = useState(false)
-  const [projectType, setProjectType] = useState<"debate" | "presentation" | null>(null)
+  const [projectType, setProjectType] = useState<"debate" | "presentation" | "interview" | null>(null)
   const [projectName, setProjectName] = useState("")
   const [projectDescription, setProjectDescription] = useState("")
   const [debateTheme, setDebateTheme] = useState("")
+  const [interviewTarget, setInterviewTarget] = useState("")
 
-  const [projects] = useState<Project[]>([
+  const [projects, setProjects] = useState<Project[]>([
     {
       id: "1",
       name: "四半期業績報告",
@@ -60,23 +61,62 @@ export default function ProjectSelection() {
       participantCount: 8,
       status: "draft",
     },
+    {
+      id: "4",
+      name: "スタートアップCEO取材",
+      description: "AI分野での起業経験とビジョンについてのインタビュー",
+      type: "interview",
+      createdAt: "2024-01-08",
+      lastUsed: "2024-01-14",
+      participantCount: 3,
+      status: "active",
+    },
   ])
 
   const handleCreateProject = () => {
-    // Here you would typically save to database
-    console.log("[v0] Creating project:", {
-      name: projectName,
-      description: projectDescription,
+    if (!projectName.trim()) {
+      alert("プロジェクト名を入力してください")
+      return
+    }
+
+    if (!projectType) {
+      alert("プロジェクトの種類を選択してください")
+      return
+    }
+
+    // 新しいプロジェクトを作成
+    const newProject: Project = {
+      id: Date.now().toString(),
+      name: projectName.trim(),
+      description: projectDescription.trim() || "説明なし",
       type: projectType,
+      createdAt: new Date().toISOString().split('T')[0], // YYYY-MM-DD形式
+      lastUsed: new Date().toISOString().split('T')[0],
+      participantCount: 1,
+      status: "draft",
+    }
+
+    console.log("Creating project:", {
+      ...newProject,
       debateTheme: projectType === "debate" ? debateTheme : undefined,
+      interviewTarget: projectType === "interview" ? interviewTarget : undefined,
     })
 
-    // Reset form and close dialog
+    // プロジェクトリストに追加
+    setProjects(prevProjects => [newProject, ...prevProjects])
+
+    // フォームをリセットしてダイアログを閉じる
     setShowCreateDialog(false)
     setProjectType(null)
     setProjectName("")
     setProjectDescription("")
     setDebateTheme("")
+    setInterviewTarget("")
+
+    // 作成したプロジェクトのページにリダイレクト
+    setTimeout(() => {
+      window.location.href = `/presentation/${newProject.id}`
+    }, 100)
   }
 
   const resetCreateForm = () => {
@@ -84,6 +124,7 @@ export default function ProjectSelection() {
     setProjectName("")
     setProjectDescription("")
     setDebateTheme("")
+    setInterviewTarget("")
   }
 
   const filteredProjects = projects.filter(
@@ -118,12 +159,16 @@ export default function ProjectSelection() {
     }
   }
 
-  const getTypeIcon = (type: "debate" | "presentation") => {
-    return type === "debate" ? <MessageSquare className="h-3 w-3" /> : <Presentation className="h-3 w-3" />
+  const getTypeIcon = (type: "debate" | "presentation" | "interview") => {
+    if (type === "debate") return <MessageSquare className="h-3 w-3" />
+    if (type === "presentation") return <Presentation className="h-3 w-3" />
+    return <Newspaper className="h-3 w-3" />
   }
 
-  const getTypeText = (type: "debate" | "presentation") => {
-    return type === "debate" ? "議論" : "プレゼン"
+  const getTypeText = (type: "debate" | "presentation" | "interview") => {
+    if (type === "debate") return "議論"
+    if (type === "presentation") return "プレゼン"
+    return "取材"
   }
 
   return (
@@ -143,7 +188,7 @@ export default function ProjectSelection() {
                   新しいプロジェクト
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>新しいプロジェクトを作成</DialogTitle>
                 </DialogHeader>
@@ -152,15 +197,15 @@ export default function ProjectSelection() {
                   {!projectType && (
                     <div className="space-y-4">
                       <Label className="text-base font-medium">プロジェクトの種類を選択してください</Label>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                         <Card
                           className="cursor-pointer hover:shadow-md transition-shadow border-2 hover:border-primary"
                           onClick={() => setProjectType("debate")}
                         >
-                          <CardContent className="p-6 text-center">
+                          <CardContent className="p-8 text-center">
                             <MessageSquare className="h-12 w-12 mx-auto mb-4 text-primary" />
-                            <h3 className="font-semibold text-lg mb-2">議論・討論</h3>
-                            <p className="text-sm text-muted-foreground">
+                            <h3 className="font-semibold text-lg mb-3">議論・討論</h3>
+                            <p className="text-sm text-muted-foreground leading-relaxed">
                               相手の主張に対する反論や事実確認を支援します
                             </p>
                           </CardContent>
@@ -170,10 +215,21 @@ export default function ProjectSelection() {
                           className="cursor-pointer hover:shadow-md transition-shadow border-2 hover:border-primary"
                           onClick={() => setProjectType("presentation")}
                         >
-                          <CardContent className="p-6 text-center">
+                          <CardContent className="p-8 text-center">
                             <Presentation className="h-12 w-12 mx-auto mb-4 text-primary" />
-                            <h3 className="font-semibold text-lg mb-2">プレゼンテーション</h3>
-                            <p className="text-sm text-muted-foreground">想定される質問への回答準備を支援します</p>
+                            <h3 className="font-semibold text-lg mb-3">プレゼンテーション</h3>
+                            <p className="text-sm text-muted-foreground leading-relaxed">想定される質問への回答準備を支援します</p>
+                          </CardContent>
+                        </Card>
+
+                        <Card
+                          className="cursor-pointer hover:shadow-md transition-shadow border-2 hover:border-primary"
+                          onClick={() => setProjectType("interview")}
+                        >
+                          <CardContent className="p-8 text-center">
+                            <Newspaper className="h-12 w-12 mx-auto mb-4 text-primary" />
+                            <h3 className="font-semibold text-lg mb-3">取材</h3>
+                            <p className="text-sm text-muted-foreground leading-relaxed">インタビューの質問内容と要点の整理を支援します</p>
                           </CardContent>
                         </Card>
                       </div>
@@ -225,10 +281,26 @@ export default function ProjectSelection() {
                             />
                           </div>
                         )}
+
+                        {projectType === "interview" && (
+                          <div>
+                            <Label htmlFor="interviewTarget">取材対象・テーマ</Label>
+                            <Input
+                              id="interviewTarget"
+                              value={interviewTarget}
+                              onChange={(e) => setInterviewTarget(e.target.value)}
+                              placeholder="取材対象や主なテーマを入力... (例: 新製品開発責任者へのインタビュー)"
+                            />
+                          </div>
+                        )}
                       </div>
 
-                      <div className="flex gap-2 pt-4">
-                        <Button onClick={handleCreateProject} className="flex-1">
+                      <div className="flex gap-2 pt-6">
+                        <Button 
+                          onClick={handleCreateProject} 
+                          className="flex-1"
+                          disabled={!projectName.trim()}
+                        >
                           プロジェクトを作成
                         </Button>
                         <Button variant="outline" onClick={resetCreateForm}>

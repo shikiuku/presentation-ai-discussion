@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Loader2 } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Loader2, Search, Image } from "lucide-react"
 
 interface TokenizedWord {
   surface: string
@@ -21,9 +22,10 @@ interface WordDefinition {
 interface TokenizedTextProps {
   text: string
   className?: string
+  onWordImageSearch?: (word: string) => void
 }
 
-export function TokenizedText({ text, className = "" }: TokenizedTextProps) {
+export function TokenizedText({ text, className = "", onWordImageSearch }: TokenizedTextProps) {
   const [words, setWords] = useState<TokenizedWord[]>([])
   const [isTokenizing, setIsTokenizing] = useState(false)
   const [selectedWord, setSelectedWord] = useState<string | null>(null)
@@ -161,17 +163,41 @@ export function TokenizedText({ text, className = "" }: TokenizedTextProps) {
                     <span className="text-sm">定義を取得中...</span>
                   </div>
                 ) : definition && selectedWord === word.surface ? (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <div className="font-semibold text-sm border-b pb-1">
                       {definition.word}
                     </div>
                     <div className="text-sm whitespace-pre-line leading-relaxed">
                       {definition.definition}
                     </div>
+                    {onWordImageSearch && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onWordImageSearch(definition.word)}
+                        className="w-full text-xs"
+                      >
+                        <Image className="h-3 w-3 mr-1" />
+                        画像を検索
+                      </Button>
+                    )}
                   </div>
                 ) : (
-                  <div className="text-sm text-muted-foreground p-2">
-                    クリックして定義を表示
+                  <div className="space-y-2">
+                    <div className="text-sm text-muted-foreground p-2">
+                      クリックして定義を表示
+                    </div>
+                    {onWordImageSearch && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onWordImageSearch(word.surface)}
+                        className="w-full text-xs"
+                      >
+                        <Image className="h-3 w-3 mr-1" />
+                        画像を検索
+                      </Button>
+                    )}
                   </div>
                 )}
               </PopoverContent>
