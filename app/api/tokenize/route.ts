@@ -23,15 +23,22 @@ async function getTokenizer() {
 }
 
 export async function POST(request: Request) {
+  let requestText = ''
+  
   try {
     const { text } = await request.json()
+    requestText = text
     
     if (!text) {
       return NextResponse.json({ error: 'テキストが必要です' }, { status: 400 })
     }
 
+    console.log('Attempting to get tokenizer...')
     const tokenizer = await getTokenizer()
+    console.log('Tokenizer obtained, processing text:', text.substring(0, 50) + '...')
+    
     const tokens = tokenizer.tokenize(text)
+    console.log('Tokenization completed, token count:', tokens.length)
     
     // 単語情報を整形
     const words = tokens.map((token: any) => ({
@@ -50,9 +57,35 @@ export async function POST(request: Request) {
     })
 
   } catch (error) {
-    console.error('Tokenization error:', error)
+    console.error('Tokenization error details:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      error: error
+    })
+    
+    // フォールバック: 簡単な分割を返す
+    if (requestText) {
+      const fallbackWords = requestText.split(/(\s+|[、。！？])/).map((word: string) => ({
+        surface: word,
+        reading: word,
+        pos: '',
+        baseForm: word,
+        isContent: word.trim().length >= 2 && !/^\s+$/.test(word) && !/^[、。！？]+$/.test(word)
+      }))
+      
+      return NextResponse.json({
+        success: true,
+        words: fallbackWords,
+        original: requestText,
+        fallback: true
+      })
+    }
+    
     return NextResponse.json(
-      { error: '形態素解析中にエラーが発生しました' },
+      { 
+        error: '形態素解析中にエラーが発生しました',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
       { status: 500 }
     )
   }
