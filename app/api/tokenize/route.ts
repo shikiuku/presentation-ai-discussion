@@ -1,9 +1,5 @@
 import { NextResponse } from 'next/server'
 import kuromoji from 'kuromoji'
-import path from 'path'
-
-// Kuromojiの辞書パスを設定
-const dicPath = path.resolve('./node_modules/kuromoji/dict')
 
 // Tokenizerをキャッシュ
 let tokenizer: any = null
@@ -12,7 +8,10 @@ async function getTokenizer() {
   if (tokenizer) return tokenizer
   
   return new Promise((resolve, reject) => {
-    kuromoji.builder({ dicPath }).build((err, _tokenizer) => {
+    // Vercel環境では辞書をCDNから読み込み
+    kuromoji.builder({ 
+      dicPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/'
+    }).build((err, _tokenizer) => {
       if (err) {
         reject(err)
       } else {
