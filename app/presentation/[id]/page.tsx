@@ -9,7 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
-import { useStreamingSpeechRecognition } from "@/hooks/use-streaming-speech-recognition"
+import { useWebSpeechRecognition } from "@/hooks/use-web-speech-recognition"
 import { TokenizedText } from "@/components/ui/tokenized-text"
 import {
   Mic,
@@ -31,6 +31,9 @@ import {
   Loader2,
   Search,
   Shield,
+  Upload,
+  FileAudio,
+  HelpCircle,
 } from "lucide-react"
 
 interface AnalysisResult {
@@ -53,10 +56,48 @@ export default function PresentationAssistant({ params }: { params: { id: string
   const [transcriptEntries, setTranscriptEntries] = useState<TranscriptEntry[]>([])
   const [userClaim, setUserClaim] = useState("")
   const [opponentClaim, setOpponentClaim] = useState("")
+  const [questionContent, setQuestionContent] = useState("") // 質問内容
+  const [summary, setSummary] = useState("") // 要約
+  const [projectType, setProjectType] = useState<"presentation" | "discussion">("presentation") // プロジェクトタイプ
+  
+  // プロジェクトデータを取得する関数
+  const fetchProjectData = async (projectId: string) => {
+    try {
+      // ここで実際のプロジェクトデータを取得
+      // 現在はローカルストレージから取得する実装
+      const savedProjectType = localStorage.getItem(`project_${projectId}_type`)
+      if (savedProjectType && (savedProjectType === "presentation" || savedProjectType === "discussion")) {
+        setProjectType(savedProjectType)
+      }
+    } catch (error) {
+      console.error("Failed to fetch project data:", error)
+    }
+  }
+
+  // プロジェクトタイプを保存する関数（プロジェクト作成時に使用）
+  const saveProjectType = (projectId: string, type: "presentation" | "discussion") => {
+    try {
+      localStorage.setItem(`project_${projectId}_type`, type)
+      setProjectType(type)
+    } catch (error) {
+      console.error("Failed to save project type:", error)
+    }
+  }
   const [analysisResults, setAnalysisResults] = useState<AnalysisResult[]>([])
   const [activeNotification, setActiveNotification] = useState<string | null>(null)
   const [isDarkMode, setIsDarkMode] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  
+  // 音声ファイルアップロード関連
+  const [isFileUploading, setIsFileUploading] = useState(false)
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null)
+  const [isFileAnalyzing, setIsFileAnalyzing] = useState(false)
+  
+  // 新しい話者管理の状態
+  const [participantCount, setParticipantCount] = useState(2) // 参加者数
+  const [currentSpeaker, setCurrentSpeaker] = useState(1) // 現在の話者（1から始まる）
+  const [participants, setParticipants] = useState<string[]>(['参加者1', '参加者2']) // 参加者名
+  
   const [sidebarSections, setSidebarSections] = useState({
     factCheck: true,
     rebuttals: true,
@@ -65,56 +106,154 @@ export default function PresentationAssistant({ params }: { params: { id: string
 
   const transcriptRef = useRef<HTMLDivElement>(null)
   const transcriptIdCounter = useRef(0)
+  const webSpeechIdCounter = useRef(0)
 
-  // ストリーミング音声認識フックを使用（リアルタイム・話者識別対応）
-  const speechRecognition = useStreamingSpeechRecognition({
-    lang: 'ja-JP',
-    chunkSize: 1000, // 1秒ごとに処理（リアルタイム性向上）
-    onResult: (result) => {
-      if (result.isFinal) {
-        const speakerName = result.speaker ? result.speaker.speakerName : "あなた"
-        const isCurrentUser = !result.speaker || result.speaker.speakerTag === 1
+  // 初期化時にプロジェクトデータを取得
+  useEffect(() => {
+    fetchProjectData(params.id)
+  }, [params.id])
+
+  // 参加者数変更時の処理
+  const handleParticipantCountChange = (count: number) => {
+    setParticipantCount(count)
+    const newParticipants = Array.from({ length: count }, (_, i) => `参加者${i + 1}`)
+    setParticipants(newParticipants)
+    
+    // 現在の話者がカウントを超えている場合は1にリセット
+    if (currentSpeaker > count) {
+      setCurrentSpeaker(1)
+    }
+  }
+
+  // 話者切り替え処理
+  const switchToSpeaker = (speakerIndex: number) => {
+    setCurrentSpeaker(speakerIndex)
+  }
+
+  // 音声ファイルアップロード処理
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    // ファイル形式チェック
+    const supportedFormats = ['audio/wav', 'audio/mp3', 'audio/mp4', 'audio/mpeg', 'audio/ogg', 'audio/webm']
+    if (!supportedFormats.includes(file.type)) {
+      setActiveNotification('サポートされていないファイル形式です。WAV、MP3、MP4、OGG、WebMファイルを選択してください。')
+      setTimeout(() => setActiveNotification(null), 5000)
+      return
+    }
+
+    // ファイルサイズチェック（25MB制限）
+    if (file.size > 25 * 1024 * 1024) {
+      setActiveNotification('ファイルサイズが大きすぎます。25MB以下のファイルを選択してください。')
+      setTimeout(() => setActiveNotification(null), 5000)
+      return
+    }
+
+    setIsFileUploading(true)
+    setUploadedFileName(file.name)
+
+    try {
+      const formData = new FormData()
+      formData.append('audio', file)
+
+      const response = await fetch('/api/gemini-speech', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        console.log('File analysis result:', result)
         
+        // Gemini APIからの結果を処理
+        if (result.success && result.result) {
+          const analysisData = result.result
+          
+          // 話者別にトランスクリプトエントリを追加
+          if (analysisData.speakers && analysisData.speakers.length > 0) {
+            analysisData.speakers.forEach((speaker: any, index: number) => {
+              const newEntry: TranscriptEntry = {
+                id: (++webSpeechIdCounter.current).toString(),
+                speaker: `話者${speaker.speakerTag || index + 1} (ファイル分析)`,
+                content: speaker.text || speaker.content || '',
+                timestamp: new Date().toLocaleTimeString(),
+                isCurrentUser: false,
+              }
+              
+              setTranscriptEntries(prev => [...prev, newEntry])
+            })
+          } else if (analysisData.transcript) {
+            // 単一トランスクリプトの場合
+            const newEntry: TranscriptEntry = {
+              id: (++webSpeechIdCounter.current).toString(),
+              speaker: '音声ファイル分析',
+              content: analysisData.transcript,
+              timestamp: new Date().toLocaleTimeString(),
+              isCurrentUser: false,
+            }
+            
+            setTranscriptEntries(prev => [...prev, newEntry])
+          }
+          
+          setActiveNotification('音声ファイルの分析が完了しました')
+          setTimeout(() => setActiveNotification(null), 3000)
+        } else {
+          setActiveNotification('音声ファイルの分析結果を取得できませんでした')
+          setTimeout(() => setActiveNotification(null), 5000)
+        }
+      } else {
+        const errorData = await response.json()
+        setActiveNotification(`音声ファイル分析エラー: ${errorData.error || '不明なエラー'}`)
+        setTimeout(() => setActiveNotification(null), 5000)
+      }
+    } catch (error) {
+      console.error('File upload error:', error)
+      setActiveNotification('音声ファイルのアップロードに失敗しました')
+      setTimeout(() => setActiveNotification(null), 5000)
+    } finally {
+      setIsFileUploading(false)
+      // input要素をリセット
+      event.target.value = ''
+    }
+  }
+
+  // Web Speech API用の音声認識フック
+  const webSpeechRecognition = useWebSpeechRecognition({
+    onResult: (result) => {
+      console.log('Web Speech result:', result)
+      
+      if (result.isFinal && result.text.trim()) {
         const newEntry: TranscriptEntry = {
-          id: (++transcriptIdCounter.current).toString(),
-          speaker: speakerName,
+          id: (++webSpeechIdCounter.current).toString(),
+          speaker: participants[currentSpeaker - 1], // 現在の話者名
           content: result.text.trim(),
           timestamp: new Date().toLocaleTimeString(),
-          isCurrentUser: isCurrentUser,
+          isCurrentUser: true, // Web Speech APIは常にユーザー入力
         }
         
         setTranscriptEntries(prev => [...prev, newEntry])
       }
     },
     onError: (error) => {
-      setActiveNotification(`音声認識エラー: ${error}`)
+      console.error('Web Speech error:', error)
+      setActiveNotification(error)
       setTimeout(() => setActiveNotification(null), 5000)
     },
+    continuous: true,
+    interimResults: true,
+    language: 'ja-JP',
   })
 
-  // speechRecognitionオブジェクトから値を分割代入
-  const {
-    isListening,
-    isSupported,
-    transcript,
-    interimTranscript,
-    start: startSpeechRecognition,
-    stop: stopSpeechRecognition,
-    error: speechError,
-    speakers,
-  } = speechRecognition
-  
   // 状態変化をログ出力
   useEffect(() => {
-    console.log('Speech recognition state changed:', {
-      isListening,
-      isSupported,
-      hasError: !!speechError,
-      speakerCount: Object.keys(speakers).length
+    console.log('Web Speech recognition state changed:', {
+      isListening: webSpeechRecognition.isListening,
+      isSupported: webSpeechRecognition.isSupported,
+      hasError: !!webSpeechRecognition.error,
     })
-    console.log('Button text should be:', isListening ? "プレゼン終了" : "プレゼン開始")
-    console.log('Button className should include:', isListening ? "bg-destructive" : "bg-primary")
-  }, [isListening, isSupported, speechError, speakers])
+    console.log('Button text should be:', webSpeechRecognition.isListening ? "録音停止" : "録音開始")
+  }, [webSpeechRecognition.isListening, webSpeechRecognition.isSupported, webSpeechRecognition.error])
 
   // ファクトチェック実行
   const handleFactCheck = async (text: string, entryId: string) => {
@@ -250,19 +389,19 @@ export default function PresentationAssistant({ params }: { params: { id: string
   }
 
   const toggleRecording = () => {
-    console.log('toggleRecording called, isListening:', isListening, 'isSupported:', isSupported)
+    console.log('toggleRecording called, isListening:', webSpeechRecognition.isListening, 'isSupported:', webSpeechRecognition.isSupported)
     
-    if (!isListening) {
-      if (!isSupported) {
-        setActiveNotification('このブラウザは音声認識をサポートしていません')
+    if (!webSpeechRecognition.isListening) {
+      if (!webSpeechRecognition.isSupported) {
+        setActiveNotification('このブラウザはWeb Speech APIをサポートしていません')
         setTimeout(() => setActiveNotification(null), 3000)
         return
       }
-      console.log('Starting speech recognition...')
-      startSpeechRecognition()
+      console.log('Starting Web Speech recognition...')
+      webSpeechRecognition.start()
     } else {
-      console.log('Stopping speech recognition...')
-      stopSpeechRecognition()
+      console.log('Stopping Web Speech recognition...')
+      webSpeechRecognition.stop()
     }
   }
 
@@ -306,7 +445,7 @@ export default function PresentationAssistant({ params }: { params: { id: string
     if (transcriptRef.current) {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
     }
-  }, [transcriptEntries, interimTranscript])
+  }, [transcriptEntries])
 
   useEffect(() => {
     if (isDarkMode) {
@@ -317,7 +456,7 @@ export default function PresentationAssistant({ params }: { params: { id: string
   }, [isDarkMode])
 
   // レンダリング時の状態をログ出力
-  console.log('Rendering with isListening:', isListening, 'isSupported:', isSupported)
+  console.log('Rendering with isListening:', webSpeechRecognition.isListening, 'isSupported:', webSpeechRecognition.isSupported)
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -336,19 +475,53 @@ export default function PresentationAssistant({ params }: { params: { id: string
               </Badge>
             </div>
             <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-2">
+                  <Users className="h-4 w-4" />
+                  <label htmlFor="participant-count" className="text-sm font-medium">参加者数:</label>
+                  <select
+                    id="participant-count"
+                    value={participantCount}
+                    onChange={(e) => handleParticipantCountChange(Number(e.target.value))}
+                    disabled={webSpeechRecognition.isListening}
+                    className="px-2 py-1 text-sm border border-border rounded bg-background text-foreground"
+                  >
+                    <option value={2}>2人</option>
+                    <option value={3}>3人</option>
+                    <option value={4}>4人</option>
+                    <option value={5}>5人</option>
+                    <option value={6}>6人</option>
+                  </select>
+                </div>
+                
+                {/* 開発者向けプロジェクトタイプ切り替え */}
+                <div className="flex items-center space-x-2">
+                  <label htmlFor="project-type" className="text-sm font-medium">タイプ:</label>
+                  <select
+                    id="project-type"
+                    value={projectType}
+                    onChange={(e) => saveProjectType(params.id, e.target.value as "presentation" | "discussion")}
+                    disabled={webSpeechRecognition.isListening}
+                    className="px-2 py-1 text-xs border border-border rounded bg-background text-foreground"
+                  >
+                    <option value="presentation">プレゼン</option>
+                    <option value="discussion">議論</option>
+                  </select>
+                </div>
+              </div>
               <Button variant="outline" size="sm" onClick={() => setIsDarkMode(!isDarkMode)}>
                 {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
               </Button>
               <Button
                 onClick={() => {
-                  console.log('Button clicked! Current isListening:', isListening, 'isSupported:', isSupported)
+                  console.log('Button clicked! Current isListening:', webSpeechRecognition.isListening, 'isSupported:', webSpeechRecognition.isSupported)
                   toggleRecording()
                 }}
-                className={`${isListening ? "bg-destructive hover:bg-destructive/90" : "bg-primary hover:bg-primary/90"}`}
-                disabled={!isSupported}
+                className={`${webSpeechRecognition.isListening ? "bg-destructive hover:bg-destructive/90" : "bg-primary hover:bg-primary/90"}`}
+                disabled={!webSpeechRecognition.isSupported}
               >
-                {isListening ? <MicOff className="h-4 w-4 mr-2" /> : <Mic className="h-4 w-4 mr-2" />}
-                {isListening ? "プレゼン終了" : "プレゼン開始"}
+                {webSpeechRecognition.isListening ? <MicOff className="h-4 w-4 mr-2" /> : <Mic className="h-4 w-4 mr-2" />}
+                {webSpeechRecognition.isListening ? "録音停止" : "録音開始"}
               </Button>
             </div>
           </div>
@@ -369,42 +542,130 @@ export default function PresentationAssistant({ params }: { params: { id: string
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Main Content Area */}
           <div className="lg:col-span-3 space-y-6">
-            {/* Claims Input Section */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center">
-                    <MessageSquare className="h-5 w-5 mr-2 text-primary" />
-                    あなたの主張
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Textarea
-                    placeholder="プレゼンテーションで主張したい内容を入力してください..."
-                    value={userClaim}
-                    onChange={(e) => setUserClaim(e.target.value)}
-                    className="min-h-[120px] resize-none"
-                  />
-                </CardContent>
-              </Card>
+            {/* Speaker Control Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center">
+                  <Users className="h-5 w-5 mr-2 text-primary" />
+                  話者切り替えコントロール
+                  {webSpeechRecognition.isListening && (
+                    <div className="ml-2 flex items-center">
+                      <div className="h-2 w-2 bg-red-500 rounded-full animate-pulse mr-2"></div>
+                      <span className="text-sm text-muted-foreground">録音中</span>
+                    </div>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-4">
+                    <span className="font-medium text-base">現在の話者:</span>
+                    <div className="flex space-x-2">
+                      {participants.map((participant, index) => (
+                        <Button
+                          key={index + 1}
+                          variant={currentSpeaker === index + 1 ? "default" : "outline"}
+                          size="lg"
+                          onClick={() => switchToSpeaker(index + 1)}
+                          disabled={false}
+                          className={`px-4 py-2 text-sm font-medium ${
+                            currentSpeaker === index + 1 
+                              ? "bg-primary text-primary-foreground shadow-md" 
+                              : "bg-background text-foreground hover:bg-muted"
+                          }`}
+                        >
+                          話者 {index + 1}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-lg font-semibold text-primary">
+                      {participants[currentSpeaker - 1]}
+                    </span>
+                    <p className="text-sm text-muted-foreground">
+                      録音中でも自由に話者を切り替えできます
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center">
-                    <AlertTriangle className="h-5 w-5 mr-2 text-destructive" />
-                    相手の主張
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Textarea
-                    placeholder="予想される反対意見や相手の主張を入力してください..."
-                    value={opponentClaim}
-                    onChange={(e) => setOpponentClaim(e.target.value)}
-                    className="min-h-[120px] resize-none"
-                  />
-                </CardContent>
-              </Card>
-            </div>
+            {/* Claims Input Section */}
+            {projectType === "presentation" ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center">
+                      <MessageSquare className="h-5 w-5 mr-2 text-primary" />
+                      プレゼン内容
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Textarea
+                      placeholder="プレゼンテーションの内容を入力してください..."
+                      value={userClaim}
+                      onChange={(e) => setUserClaim(e.target.value)}
+                      className="min-h-[120px] resize-none"
+                    />
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center">
+                      <HelpCircle className="h-5 w-5 mr-2 text-blue-600" />
+                      質問内容
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Textarea
+                      placeholder="予想される質問内容を入力してください..."
+                      value={questionContent}
+                      onChange={(e) => setQuestionContent(e.target.value)}
+                      className="min-h-[120px] resize-none"
+                    />
+                  </CardContent>
+                </Card>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center">
+                      <MessageSquare className="h-5 w-5 mr-2 text-primary" />
+                      あなたの主張
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Textarea
+                      placeholder="ディスカッションで主張したい内容を入力してください..."
+                      value={userClaim}
+                      onChange={(e) => setUserClaim(e.target.value)}
+                      className="min-h-[120px] resize-none"
+                    />
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center">
+                      <AlertTriangle className="h-5 w-5 mr-2 text-destructive" />
+                      相手の主張
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Textarea
+                      placeholder="予想される反対意見や相手の主張を入力してください..."
+                      value={opponentClaim}
+                      onChange={(e) => setOpponentClaim(e.target.value)}
+                      className="min-h-[120px] resize-none"
+                    />
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
 
             {/* Live Transcript */}
             <Card className="flex-1">
@@ -412,22 +673,17 @@ export default function PresentationAssistant({ params }: { params: { id: string
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg flex items-center">
                     <Mic className="h-5 w-5 mr-2 text-accent" />
-                    ライブトランスクリプト
-                    {isListening && (
+                    音声認識トランスクリプト
+                    {webSpeechRecognition.isListening && (
                       <div className="ml-2 flex items-center">
                         <div className="h-2 w-2 bg-red-500 rounded-full animate-pulse mr-2"></div>
                         <span className="text-sm text-muted-foreground">録音中</span>
                       </div>
                     )}
                     <Badge variant="secondary" className="ml-2 text-xs">
-                      リアルタイムストリーミング・話者識別対応
+                      Web Speech API - 手動話者切り替え
                     </Badge>
-                    {Object.keys(speakers).length > 0 && (
-                      <Badge variant="outline" className="ml-2 text-xs">
-                        {Object.keys(speakers).length}名の話者を検出
-                      </Badge>
-                    )}
-                    {speechError && (
+                    {webSpeechRecognition.error && (
                       <div className="ml-2 flex items-center">
                         <AlertTriangle className="h-4 w-4 text-destructive mr-1" />
                         <span className="text-sm text-destructive">エラー</span>
@@ -453,9 +709,9 @@ export default function PresentationAssistant({ params }: { params: { id: string
                 </div>
               </CardHeader>
               <CardContent>
-                <ScrollArea className="h-[300px] w-full">
+                <ScrollArea className="h-[600px] w-full">
                   <div ref={transcriptRef} className="space-y-3 p-4">
-                    {transcriptEntries.length > 0 || interimTranscript ? (
+                    {transcriptEntries.length > 0 ? (
                       <>
                         {transcriptEntries.map((entry) => (
                           <div
@@ -505,27 +761,24 @@ export default function PresentationAssistant({ params }: { params: { id: string
                                     variant="outline"
                                     size="sm"
                                     onClick={() => handleRebuttal(entry.content, entry.id)}
-                                    disabled={isAnalyzing || !userClaim || !opponentClaim}
+                                    disabled={isAnalyzing || !userClaim || (projectType === "discussion" && !opponentClaim)}
                                     className="text-xs h-7 px-2"
                                   >
                                     <MessageSquare className="h-3 w-3 mr-1" />
-                                    反論提案
+                                    {projectType === "presentation" ? "質問提案" : "反論提案"}
                                   </Button>
                                 </div>
                               </div>
                             </div>
                           </div>
                         ))}
-                        {interimTranscript && (
-                          <div className="flex items-start space-x-3 p-3 rounded-lg bg-accent/20 border-l-4 border-accent opacity-70">
-                            <div className="flex-shrink-0 mt-1">
-                              <User className="h-4 w-4 text-accent" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center space-x-2 mb-1">
-                                <span className="text-sm font-medium text-accent">あなた (入力中...)</span>
-                              </div>
-                              <p className="text-sm leading-relaxed text-foreground italic">{interimTranscript}</p>
+                        {webSpeechRecognition.isListening && (
+                          <div className="text-center py-4">
+                            <div className="inline-flex items-center px-4 py-2 bg-accent/20 rounded-lg">
+                              <div className="h-2 w-2 bg-red-500 rounded-full animate-pulse mr-2"></div>
+                              <span className="text-sm text-muted-foreground">
+                                録音中... (話者: {participants[currentSpeaker - 1]})
+                              </span>
                             </div>
                           </div>
                         )}
@@ -533,8 +786,8 @@ export default function PresentationAssistant({ params }: { params: { id: string
                     ) : (
                       <div className="text-center py-8">
                         <span className="text-muted-foreground italic">
-                          {!isSupported 
-                            ? "このブラウザは音声認識をサポートしていません"
+                          {!webSpeechRecognition.isSupported 
+                            ? "このブラウザはWeb Speech APIをサポートしていません"
                             : "プレゼンテーションを開始すると、音声がここにリアルタイムで表示されます..."
                           }
                         </span>
@@ -544,11 +797,88 @@ export default function PresentationAssistant({ params }: { params: { id: string
                 </ScrollArea>
               </CardContent>
             </Card>
+
+            {/* Summary Section - Only for Presentation Mode */}
+            {projectType === "presentation" && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center">
+                    <BookOpen className="h-5 w-5 mr-2 text-primary" />
+                    要約
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Textarea
+                    placeholder="プレゼンテーションの要約を入力してください..."
+                    value={summary}
+                    onChange={(e) => setSummary(e.target.value)}
+                    className="min-h-[100px] resize-none"
+                  />
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           {/* Analysis Sidebar */}
-          <div className="lg:col-span-1">
+          <div className="lg:col-span-1 space-y-4">
+            {/* Audio File Upload Section */}
             <Card className="sticky top-6">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center">
+                  <FileAudio className="h-4 w-4 mr-2 text-purple-600" />
+                  音声ファイル分析
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    音声ファイルをアップロードしてGemini AIで分析
+                  </p>
+                  
+                  <div className="space-y-2">
+                    <label htmlFor="audio-upload" className="block cursor-pointer">
+                      <div className={`
+                        border-2 border-dashed rounded-lg p-4 text-center transition-colors
+                        ${isFileUploading 
+                          ? 'border-blue-300 bg-blue-50 dark:bg-blue-900/20' 
+                          : 'border-gray-300 hover:border-gray-400 bg-gray-50 hover:bg-gray-100 dark:bg-gray-900/20'
+                        }
+                      `}>
+                        {isFileUploading ? (
+                          <div className="flex flex-col items-center space-y-1">
+                            <Loader2 className="h-6 w-6 text-blue-600 animate-spin" />
+                            <span className="text-xs text-blue-600">分析中...</span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center space-y-1">
+                            <Upload className="h-6 w-6 text-gray-400" />
+                            <span className="text-xs text-gray-600 dark:text-gray-300">
+                              ファイルを選択
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <input
+                        id="audio-upload"
+                        type="file"
+                        accept="audio/*"
+                        onChange={handleFileUpload}
+                        disabled={isFileUploading}
+                        className="hidden"
+                      />
+                    </label>
+                    
+                    {uploadedFileName && !isFileUploading && (
+                      <div className="text-xs text-green-600 dark:text-green-400">
+                        ✓ {uploadedFileName} 分析完了
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
               <CardHeader>
                 <CardTitle className="text-lg">AI分析結果</CardTitle>
               </CardHeader>
@@ -590,12 +920,12 @@ export default function PresentationAssistant({ params }: { params: { id: string
 
                 <Separator />
 
-                {/* Rebuttals Section */}
+                {/* Rebuttals/Questions Section */}
                 <Collapsible open={sidebarSections.rebuttals} onOpenChange={() => toggleSidebarSection("rebuttals")}>
                   <CollapsibleTrigger className="flex items-center justify-between w-full p-2 hover:bg-muted rounded-lg">
                     <div className="flex items-center">
                       <MessageSquare className="h-4 w-4 mr-2 text-blue-600" />
-                      <span className="font-medium">反論提案</span>
+                      <span className="font-medium">{projectType === "presentation" ? "質問提案" : "反論提案"}</span>
                     </div>
                     {sidebarSections.rebuttals ? (
                       <ChevronDown className="h-4 w-4" />
@@ -618,7 +948,9 @@ export default function PresentationAssistant({ params }: { params: { id: string
                             </div>
                           ))}
                         {analysisResults.filter((r) => r.type === "rebuttal").length === 0 && (
-                          <p className="text-sm text-muted-foreground italic">反論提案はまだありません</p>
+                          <p className="text-sm text-muted-foreground italic">
+                            {projectType === "presentation" ? "質問提案はまだありません" : "反論提案はまだありません"}
+                          </p>
                         )}
                       </div>
                     </ScrollArea>
