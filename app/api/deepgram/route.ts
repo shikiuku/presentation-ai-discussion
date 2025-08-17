@@ -1,9 +1,17 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@deepgram/sdk'
 
-const deepgram = createClient(process.env.DEEPGRAM_API_KEY!)
-
 export async function POST(request: Request) {
+  // 環境変数のチェック
+  if (!process.env.DEEPGRAM_API_KEY) {
+    console.error('DEEPGRAM_API_KEY is not set in environment variables')
+    return NextResponse.json(
+      { error: 'Deepgram APIキーが設定されていません' },
+      { status: 500 }
+    )
+  }
+
+  const deepgram = createClient(process.env.DEEPGRAM_API_KEY)
   try {
     const formData = await request.formData()
     const audioFile = formData.get('audio') as File
