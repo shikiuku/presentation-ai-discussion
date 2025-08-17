@@ -70,7 +70,7 @@ export default function PresentationAssistant({ params }: { params: { id: string
   const speechRecognition = useExternalSpeechRecognition({
     lang: 'ja-JP',
     continuous: true,
-    recordingDuration: 5000,
+    recordingDuration: 12000,
     onResult: (result) => {
       if (result.isFinal) {
         const speakerName = result.speaker ? result.speaker.speakerName : "あなた"

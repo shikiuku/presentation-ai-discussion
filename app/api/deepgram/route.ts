@@ -34,6 +34,10 @@ export async function POST(request: Request) {
         diarize: true,  // 話者識別を有効化
         smart_format: true,
         utterances: true,  // 発話ごとに区切る
+        paragraphs: true,  // 段落の検出
+        detect_language: false,  // 言語検出を無効化（日本語固定）
+        vad_events: true,  // 音声活動検出イベント
+        endpointing: 300,  // 無音期間300msで発話終了を検出
       }
     )
 

@@ -33,7 +33,7 @@ export interface UseExternalSpeechRecognitionReturn {
 export function useExternalSpeechRecognition({
   lang = 'ja-JP',
   continuous = true,
-  recordingDuration = 5000,
+  recordingDuration = 12000,
   onResult,
   onError,
 }: UseExternalSpeechRecognitionProps = {}): UseExternalSpeechRecognitionReturn {
